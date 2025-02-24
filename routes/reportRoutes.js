@@ -4,7 +4,6 @@ const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 
-// Secure database connection using environment variables
 const router = express.Router();
 const pgPool = new Pool({
     host: 'localhost',
@@ -14,17 +13,15 @@ const pgPool = new Pool({
     password: '123789'
 });
 
-// Ensure downloads directory exists
 const DOWNLOADS_DIR = path.join(__dirname, '../downloads');
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
-// Common function to generate reports
 async function generateReport(reportType) {
     const periodMap = {
-        'weekly': {
-            trunc: 'week',
-            interval: '1 week',
-            startColumn: 'week_start'
+        'daily': {
+            trunc: 'day',
+            interval: '1 day',
+            startColumn: 'day'
         },
         'monthly': {
             trunc: 'month',
@@ -41,12 +38,13 @@ async function generateReport(reportType) {
     const period = periodMap[reportType];
 
     try {
-        // Individual Devices Query
+        // Individual Devices Query with cumulative totals
         const individualDevicesQuery = `
         WITH period_data AS (
             SELECT 
                 device_id,
                 SUM(panels_cleaned) AS total_panels_cleaned,
+                MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
                 AVG(battery_discharge_cycle) AS avg_battery_discharge,
                 DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
             FROM 
@@ -60,6 +58,7 @@ async function generateReport(reportType) {
         SELECT 
             device_id,
             total_panels_cleaned,
+            lifetime_total_cleaned,
             ROUND(avg_battery_discharge::numeric, 2) AS avg_battery_discharge,
             ${period.startColumn}
         FROM 
@@ -68,12 +67,13 @@ async function generateReport(reportType) {
             device_id;
         `;
         
-        // Overall Summary Query
+        // Overall Summary Query with lifetime totals
         const overallSummaryQuery = `
         WITH period_data AS (
             SELECT 
                 device_id,
                 SUM(panels_cleaned) AS total_panels_cleaned,
+                MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
                 AVG(battery_discharge_cycle) AS avg_battery_discharge,
                 DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
             FROM 
@@ -87,30 +87,29 @@ async function generateReport(reportType) {
         SELECT 
             COUNT(DISTINCT device_id) AS total_robots,
             SUM(total_panels_cleaned) AS overall_total_panels_cleaned,
+            SUM(lifetime_total_cleaned) AS overall_lifetime_total_cleaned,
             ROUND(AVG(avg_battery_discharge)::numeric, 2) AS overall_avg_battery_discharge
         FROM 
             period_data;
         `;
 
-        // Execute queries
         const [individualDevicesResult, overallSummaryResult] = await Promise.all([
             pgPool.query(individualDevicesQuery),
             pgPool.query(overallSummaryQuery)
         ]);
 
-        // Prepare CSV for download
         const csvPath = path.join(DOWNLOADS_DIR, `${reportType}_report.csv`);
         const csvWriter = createCsvWriter({
             path: csvPath,
             header: [
                 {id: 'device_id', title: 'Device ID'},
                 {id: 'total_panels_cleaned', title: 'Total Panels Cleaned'},
+                {id: 'lifetime_total_cleaned', title: 'Lifetime Total Cleaned'},
                 {id: 'avg_battery_discharge', title: 'Avg Battery Discharge'},
                 {id: `${period.startColumn}`, title: `${reportType.charAt(0).toUpperCase() + reportType.slice(1)} Start`}
             ]
         });
 
-        // Write individual device data to CSV
         await csvWriter.writeRecords(individualDevicesResult.rows);
 
         return {
@@ -126,12 +125,12 @@ async function generateReport(reportType) {
 }
 
 // Report Routes
-router.get('/weekly-report', async (req, res) => {
+router.get('/daily-report', async (req, res) => {
     try {
-        const reportData = await generateReport('weekly');
+        const reportData = await generateReport('daily');
         res.json(reportData);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to generate weekly report' });
+        res.status(500).json({ error: 'Failed to generate daily report' });
     }
 });
 
@@ -153,6 +152,36 @@ router.get('/yearly-report', async (req, res) => {
     }
 });
 
+// New API for getting lifetime totals
+// New API for getting total lifetime panels cleaned by all robots
+router.get('/total-lifetime-cleaned', async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                SUM(panels_cleaned) as total_lifetime_cleaned,
+                COUNT(DISTINCT device_id) as total_robots,
+                MIN(timestamp) as first_operation,
+                MAX(timestamp) as last_operation
+            FROM 
+                robot_data;
+        `;
+
+        const result = await pgPool.query(query);
+        res.json({
+            total_lifetime_cleaned: result.rows[0].total_lifetime_cleaned || 0,
+            total_robots: result.rows[0].total_robots || 0,
+            first_operation: result.rows[0].first_operation,
+            last_operation: result.rows[0].last_operation
+        });
+    } catch (error) {
+        console.error('Error fetching total lifetime cleaned:', error);
+        res.status(500).json({ 
+            error: 'Failed to retrieve total lifetime cleaned',
+            details: error.message 
+        });
+    }
+});
+
 router.get('/robot-performance/last-7-days', async (req, res) => {
     try {
         const query = `
@@ -160,6 +189,7 @@ router.get('/robot-performance/last-7-days', async (req, res) => {
                 SELECT 
                     DATE_TRUNC('day', timestamp) AS performance_date,
                     SUM(panels_cleaned) AS total_panels_cleaned,
+                    MAX(cumulative_panels_cleaned) AS cumulative_total,
                     AVG(battery_discharge_cycle) AS avg_battery_discharge
                 FROM 
                     robot_data
@@ -173,6 +203,7 @@ router.get('/robot-performance/last-7-days', async (req, res) => {
             SELECT 
                 TO_CHAR(performance_date, 'YYYY-MM-DD') AS date,
                 total_panels_cleaned,
+                cumulative_total,
                 ROUND(avg_battery_discharge::numeric, 2) AS avg_battery_discharge
             FROM 
                 daily_performance
@@ -181,11 +212,10 @@ router.get('/robot-performance/last-7-days', async (req, res) => {
         `;
 
         const result = await pgPool.query(query);
-
-        // Transform the result into a format suitable for Recharts
         const chartData = result.rows.map(row => ({
             date: row.date,
             total_panels_cleaned: parseInt(row.total_panels_cleaned) || 0,
+            cumulative_total: parseInt(row.cumulative_total) || 0,
             avg_battery_discharge: parseFloat(row.avg_battery_discharge) || 0
         }));
 
@@ -199,10 +229,10 @@ router.get('/robot-performance/last-7-days', async (req, res) => {
     }
 });
 
-// Download Routes
+// Download Routes remain the same but update the valid types
 router.get('/download-report/:type', (req, res) => {
     const reportType = req.params.type;
-    const validTypes = ['weekly', 'monthly', 'yearly'];
+    const validTypes = ['daily', 'monthly', 'yearly'];
 
     if (!validTypes.includes(reportType)) {
         return res.status(400).send('Invalid report type');
@@ -210,7 +240,6 @@ router.get('/download-report/:type', (req, res) => {
 
     const csvPath = path.join(DOWNLOADS_DIR, `${reportType}_report.csv`);
     
-    // Check if the file exists before attempting to download
     if (fs.existsSync(csvPath)) {
         res.download(csvPath, `${reportType}_report.csv`, (err) => {
             if (err) {

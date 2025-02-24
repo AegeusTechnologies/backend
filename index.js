@@ -109,13 +109,16 @@ function setupMQTTClient() {
             // Store in memory (this is for the )
             deviceData.set(deviceEUI, {
                 lastUpdate: new Date(),
-                data: data.object
+                data: data.object,
+                rssi:data.rxInfo[0].rssi,
+                deviceName:data.deviceInfo.deviceName
+
             });
             //store the error data in the memory
             deviceErrorData.set(deviceEUI,{
                 lastUpdate:new Date(),
                 fault:data.object.CH7,
-                Name:data.object.CH1,
+                Name:data.deviceInfo.deviceName,
                 deviceEUI:deviceEUI
             })
             console.log(deviceErrorData.Name)
@@ -124,7 +127,7 @@ function setupMQTTClient() {
 
             
             // Process and store in PostgreSQL
-            await processAndStoreData(data.object);
+            await processAndStoreData(data);
 
             console.log(`Received data from device ${deviceEUI}:`, data.object);
         } catch (error) {
@@ -147,67 +150,111 @@ function setupMQTTClient() {
     return client;
 }
 
-// Function to process and store MQTT data in PostgreSQL
+const PANEL_CONFIGS = {
+    MULTIPLICATION_FACTOR: 2, // 2 for dual panel, 1 for single panel
+    PANEL_TO_PANEL_GAPS: 10  // in mm, adjust based on site conditions
+};
+
 async function processAndStoreData(dataObject) {
     try {
         // Extract relevant values from the MQTT message
-        const deviceId = parseInt(dataObject.CH1);
-        const currentPanelsCleaned = parseFloat(dataObject.CH10);
-        const currentCh6 = parseFloat(dataObject.CH6);
+        const deviceId = dataObject.deviceInfo.deviceEUI;
+        const deviceName = dataObject.deviceInfo.deviceName;
+        const currentOdometerValue = parseFloat(dataObject.CH10);
+        const currentBatteryDischarge = parseFloat(dataObject.CH6);
 
-        // Check if CH1 is zero, and reject the data if so
+        // Basic validation
         if (deviceId === 0) {
-            console.log('Data rejected because CH1 is 0 (deviceId is zero)');
-            return; // Exit early, do not proceed with the database update
+            console.log('Data rejected because deviceId is zero');
+            return;
         }
 
-        // Step 1: Fetch the previous panels_cleaned value for this device
-        const query = `
-            SELECT panels_cleaned
+        // Step 1: Fetch the last two readings for this device
+        const historyQuery = `
+            SELECT panels_cleaned, raw_odometer_value
             FROM robot_data
-            WHERE device_id = $1
+            WHERE device_id = $1 OR device_name = $2
             ORDER BY timestamp DESC
-            LIMIT 1;
+            LIMIT 2;
         `;
-        const prevRes = await pgClient.query(query, [deviceId]);
+        const prevRes = await pgClient.query(historyQuery, [deviceId, deviceName]);
 
-        let panelsCleanedSinceLast = currentPanelsCleaned; // Default to current value if no previous data is found
+        // Calculate panels cleaned based on EEPROM value and history
+        let panelsCleanedSinceLast = 0;
+        let shouldStore = true;
+        let totalPanelsCleaned = calculateTotalPanelsCleaned(currentOdometerValue);
 
         if (prevRes.rows.length > 0) {
-            // If previous data exists, calculate the difference
-            const previousPanelsCleaned = prevRes.rows[0].panels_cleaned;
-            panelsCleanedSinceLast = currentPanelsCleaned - previousPanelsCleaned;
+            const lastRecord = prevRes.rows[0];
+            const previousOdometerValue = lastRecord.raw_odometer_value;
+            const previousTotalCleaned = lastRecord.panels_cleaned;
 
-            // Ensure the calculated value is a valid number
-            if (isNaN(panelsCleanedSinceLast)) {
-                console.error('Calculated panels_cleaned is NaN');
-                return;
+            // Detect EEPROM reset
+            if (currentOdometerValue < previousOdometerValue) {
+                console.log('EEPROM reset detected');
+                // Add the current reading to the historical total
+                totalPanelsCleaned = previousTotalCleaned + calculateTotalPanelsCleaned(currentOdometerValue);
+                panelsCleanedSinceLast = calculateTotalPanelsCleaned(currentOdometerValue);
+            } else {
+                // Normal case - no reset
+                const newPanelsCleaned = calculateTotalPanelsCleaned(currentOdometerValue - previousOdometerValue);
+                totalPanelsCleaned = previousTotalCleaned + newPanelsCleaned;
+                panelsCleanedSinceLast = newPanelsCleaned;
             }
 
-            console.log(`Panels cleaned since last reading: ${panelsCleanedSinceLast}`);
+            // Validate the calculated values
+            if (panelsCleanedSinceLast <= 0) {
+                console.log('Data rejected: No new panels cleaned or invalid difference');
+                shouldStore = false;
+            }
         } else {
-            // If no previous data, insert the current value as the initial data
-            console.log('No previous data found for this device, setting panels_cleaned to current value.');
+            // First entry for this device
+            console.log('No previous data found for this device, setting initial values');
+            panelsCleanedSinceLast = totalPanelsCleaned;
         }
 
-        // Step 2: Insert the new record into the database
-        const insertQuery = `
-            INSERT INTO robot_data (device_id, panels_cleaned, battery_discharge_cycle)
-            VALUES ($1, $2, $3) RETURNING id;
-        `;
-        const values = [deviceId, panelsCleanedSinceLast, currentCh6];
-        const insertRes = await pgClient.query(insertQuery, values);
-
-        console.log('Data inserted with ID:', insertRes.rows[0].id);
+        // Step 2: Insert the new record if valid
+        if (shouldStore) {
+            const insertQuery = `
+                INSERT INTO robot_data (
+                    device_id,
+                    device_name,
+                    panels_cleaned,
+                    raw_odometer_value,
+                    cumulative_panels_cleaned,
+                    battery_discharge_cycle
+                )
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING id;
+            `;
+            const values = [
+                deviceId,
+                deviceName,
+                panelsCleanedSinceLast,
+                currentOdometerValue,
+                totalPanelsCleaned,
+                currentBatteryDischarge
+            ];
+            const insertRes = await pgClient.query(insertQuery, values);
+            console.log(`Data inserted with ID: ${insertRes.rows[0].id}`);
+        }
     } catch (error) {
         console.error('Error processing message:', error);
     }
 }
 
+function calculateTotalPanelsCleaned(odometerValue) {
+    return Math.max(0, 
+        odometerValue * PANEL_CONFIGS.MULTIPLICATION_FACTOR - 
+        PANEL_CONFIGS.PANEL_TO_PANEL_GAPS
+    );
+}
+
 // Initialize MQTT client
 const mqttClient = setupMQTTClient();
-// In config.js or similar file
 
+
+// this is pART 3 
 
 let weatherThresholds = {
     windSpeedThreshold: 10,
