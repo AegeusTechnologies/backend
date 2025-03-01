@@ -15,9 +15,9 @@ const app = express();
 const pgClient = new Pool({
     host: 'localhost',
     port: 5432,
-    database: 'robot_data',
+    database: 'Robot_clp_data',
     user: 'postgres',
-    password: '123789'
+    password: '1983'
 });
 
 // Connect to PostgreSQL
@@ -44,7 +44,7 @@ const deviceData = new Map(); // to store the device in the device data in the m
 const deviceErrorData=new Map();// this isfor only to store the error data
 
 // MQTT Configuration
-const mqttBrokerUrl = 'mqtt://localhost:1883';
+const mqttBrokerUrl = 'mqtt://103.161.75.85:1885';
 const options = {
     clientId: 'mqttjs_' + Math.random().toString(16).substr(2, 8),
     username: 'YOUR_MQTT_USERNAME',
@@ -157,22 +157,46 @@ const PANEL_CONFIGS = {
 
 async function processAndStoreData(dataObject) {
     try {
-        // Extract relevant values from the MQTT message
-        const deviceId = dataObject.deviceInfo.deviceEUI;
-        const deviceName = dataObject.deviceInfo.deviceName;
-        const currentOdometerValue = parseFloat(dataObject.CH10);
-        const currentBatteryDischarge = parseFloat(dataObject.CH6);
 
+        console.log(dataObject)
+
+        // Extract relevant values from the MQTT message
+        const deviceId = dataObject.deviceInfo.devEui;
+        const deviceName = dataObject.deviceInfo.deviceName;
+        const currentOdometerValue =Number(dataObject.object.CH10)
+        const currentBatteryDischarge =Number(dataObject.object.CH6)
+        console.log(currentOdometerValue)
+        console.log(currentBatteryDischarge)
+        
         // Basic validation
-        if (deviceId === 0) {
-            console.log('Data rejected because deviceId is zero');
+             // Enhanced validation
+             if (!deviceId || deviceId === '0' || deviceId === 0) {
+                console.log('Data rejected: Invalid or missing deviceId:', deviceId);
+                return;
+            }
+    
+            if (!deviceName) {
+                console.log('Data rejected: Missing deviceName');
+                return;
+            }
+
+            
+
+         // Validate numeric values
+         if (isNaN(currentOdometerValue) || isNaN(currentBatteryDischarge)) {
+            console.log('Invalid numeric values:', {
+                currentOdometerValue,
+                currentBatteryDischarge
+            });
             return;
         }
+
+        
 
         // Step 1: Fetch the last two readings for this device
         const historyQuery = `
             SELECT panels_cleaned, raw_odometer_value
-            FROM robot_data
+            FROM Robot_clp_data
             WHERE device_id = $1 OR device_name = $2
             ORDER BY timestamp DESC
             LIMIT 2;
@@ -216,7 +240,7 @@ async function processAndStoreData(dataObject) {
         // Step 2: Insert the new record if valid
         if (shouldStore) {
             const insertQuery = `
-                INSERT INTO robot_data (
+                INSERT INTO Robot_clp_data (
                     device_id,
                     device_name,
                     panels_cleaned,
@@ -641,28 +665,29 @@ app.get('/api/gateway', async (req, res) => {
 });
 
 
-app.get("/api/server",async(req,res)=>{
+
+app.get("/api/server", async(req, res) => {
     try {
-        const response=await apiClient.get('http://localhost:8080/')
+        const response = await apiClient.get('http://103.161.75.85:8082');
         if (response.status === 200) {
-            console.log("server is running successfully")
-            res.status(200).json({
-            message:"workingfine",
-            time:Date.now()
-            })
+            console.log("server is running successfully");
+            return res.status(200).json({
+                message: "workingfine",
+                time: Date.now()
+            });
         }
 
-      res.status(500).json({
-            message:"Notworking"
-      })
+        // If status is not 200, send error response
+        return res.status(500).json({
+            message: "Notworking"
+        });
         
     } catch (error) {
-        res.status(500).json({
-            error:error.response.data||error.message
-        })
+        return res.status(500).json({
+            error: error.message
+        });
     }
-
-})
+});
 
 app.get('/api/allGateways',async(req,res)=>{
     try {
@@ -700,7 +725,7 @@ process.on('SIGTERM', () => {
     });
 });
 
-const PORT = 5000;
+const PORT = 5002;
 const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });

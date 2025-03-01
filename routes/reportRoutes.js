@@ -8,11 +8,10 @@ const router = express.Router();
 const pgPool = new Pool({
     host: 'localhost',
     port: 5432,
-    database: 'robot_data',
+    database: 'Robot_clp_data',
     user: 'postgres',
-    password: '123789'
+    password: '1983'
 });
-
 const DOWNLOADS_DIR = path.join(__dirname, '../downloads');
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
@@ -39,60 +38,80 @@ async function generateReport(reportType) {
 
     try {
         // Individual Devices Query with cumulative totals
-        const individualDevicesQuery = `
-        WITH period_data AS (
-            SELECT 
-                device_id,
-                SUM(panels_cleaned) AS total_panels_cleaned,
-                MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
-                AVG(battery_discharge_cycle) AS avg_battery_discharge,
-                DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
-            FROM 
-                robot_data
-            WHERE 
-                timestamp >= DATE_TRUNC('${period.trunc}', CURRENT_DATE)
-                AND timestamp < DATE_TRUNC('${period.trunc}', CURRENT_DATE + INTERVAL '${period.interval}')
-            GROUP BY 
-                device_id, ${period.startColumn}
-        ) 
-        SELECT 
-            device_id,
-            total_panels_cleaned,
-            lifetime_total_cleaned,
-            ROUND(avg_battery_discharge::numeric, 2) AS avg_battery_discharge,
-            ${period.startColumn}
-        FROM 
-            period_data 
-        ORDER BY 
-            device_id;
-        `;
-        
-        // Overall Summary Query with lifetime totals
-        const overallSummaryQuery = `
-        WITH period_data AS (
-            SELECT 
-                device_id,
-                SUM(panels_cleaned) AS total_panels_cleaned,
-                MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
-                AVG(battery_discharge_cycle) AS avg_battery_discharge,
-                DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
-            FROM 
-                robot_data
-            WHERE 
-                timestamp >= DATE_TRUNC('${period.trunc}', CURRENT_DATE)
-                AND timestamp < DATE_TRUNC('${period.trunc}', CURRENT_DATE + INTERVAL '${period.interval}')
-            GROUP BY 
-                device_id, ${period.startColumn}
-        )
-        SELECT 
-            COUNT(DISTINCT device_id) AS total_robots,
-            SUM(total_panels_cleaned) AS overall_total_panels_cleaned,
-            SUM(lifetime_total_cleaned) AS overall_lifetime_total_cleaned,
-            ROUND(AVG(avg_battery_discharge)::numeric, 2) AS overall_avg_battery_discharge
-        FROM 
-            period_data;
-        `;
+    // Update the individualDevicesQuery inside generateReport function:
+// Inside generateReport function, modify the individualDevicesQuery:
+const individualDevicesQuery = `
+WITH period_data AS (
+    SELECT 
+        device_id,
+        device_name,
+        SUM(panels_cleaned) AS total_panels_cleaned,
+        MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
+        AVG(battery_discharge_cycle) AS avg_battery_discharge,
+        DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
+    FROM 
+        Robot_clp_data
+    WHERE 
+        CASE 
+            WHEN '${reportType}' = 'daily' THEN
+                timestamp >= CURRENT_DATE AND timestamp < CURRENT_DATE + INTERVAL '1 day'
+            WHEN '${reportType}' = 'monthly' THEN
+                timestamp >= DATE_TRUNC('month', CURRENT_DATE) 
+                AND timestamp < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+            WHEN '${reportType}' = 'yearly' THEN
+                timestamp >= DATE_TRUNC('year', CURRENT_DATE)
+                AND timestamp < DATE_TRUNC('year', CURRENT_DATE) + INTERVAL '1 year'
+        END
+    GROUP BY 
+        device_id, device_name, ${period.startColumn}
+)
+SELECT 
+    device_id,
+    device_name,
+    total_panels_cleaned,
+    lifetime_total_cleaned,
+    ROUND(avg_battery_discharge::numeric, 2) AS avg_battery_discharge,
+    TO_CHAR(${period.startColumn}, 'YYYY-MM-DD HH24:MI:SS') as ${period.startColumn}
+FROM 
+    period_data 
+ORDER BY 
+    device_name;
+`;
 
+// Also update the overallSummaryQuery with the same conditions:
+const overallSummaryQuery = `
+WITH period_data AS (
+    SELECT 
+        device_id,
+        device_name,
+        SUM(panels_cleaned) AS total_panels_cleaned,
+        MAX(cumulative_panels_cleaned) AS lifetime_total_cleaned,
+        AVG(battery_discharge_cycle) AS avg_battery_discharge,
+        DATE_TRUNC('${period.trunc}', timestamp) AS ${period.startColumn}
+    FROM 
+        Robot_clp_data
+    WHERE 
+        CASE 
+            WHEN '${reportType}' = 'daily' THEN
+                timestamp >= CURRENT_DATE AND timestamp < CURRENT_DATE + INTERVAL '1 day'
+            WHEN '${reportType}' = 'monthly' THEN
+                timestamp >= DATE_TRUNC('month', CURRENT_DATE) 
+                AND timestamp < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+            WHEN '${reportType}' = 'yearly' THEN
+                timestamp >= DATE_TRUNC('year', CURRENT_DATE)
+                AND timestamp < DATE_TRUNC('year', CURRENT_DATE) + INTERVAL '1 year'
+        END
+    GROUP BY 
+        device_id, device_name, ${period.startColumn}
+)
+SELECT 
+    COUNT(DISTINCT device_id) AS total_robots,
+    SUM(total_panels_cleaned) AS overall_total_panels_cleaned,
+    SUM(lifetime_total_cleaned) AS overall_lifetime_total_cleaned,
+    ROUND(AVG(avg_battery_discharge)::numeric, 2) AS overall_avg_battery_discharge
+FROM 
+    period_data;
+`;
         const [individualDevicesResult, overallSummaryResult] = await Promise.all([
             pgPool.query(individualDevicesQuery),
             pgPool.query(overallSummaryQuery)
@@ -102,7 +121,7 @@ async function generateReport(reportType) {
         const csvWriter = createCsvWriter({
             path: csvPath,
             header: [
-                {id: 'device_id', title: 'Device ID'},
+                {id: 'device_name', title: 'Device Name'}, 
                 {id: 'total_panels_cleaned', title: 'Total Panels Cleaned'},
                 {id: 'lifetime_total_cleaned', title: 'Lifetime Total Cleaned'},
                 {id: 'avg_battery_discharge', title: 'Avg Battery Discharge'},
@@ -163,7 +182,7 @@ router.get('/total-lifetime-cleaned', async (req, res) => {
                 MIN(timestamp) as first_operation,
                 MAX(timestamp) as last_operation
             FROM 
-                robot_data;
+                Robot_clp_data;
         `;
 
         const result = await pgPool.query(query);
@@ -192,7 +211,7 @@ router.get('/robot-performance/last-7-days', async (req, res) => {
                     MAX(cumulative_panels_cleaned) AS cumulative_total,
                     AVG(battery_discharge_cycle) AS avg_battery_discharge
                 FROM 
-                    robot_data
+                    Robot_clp_data
                 WHERE 
                     timestamp >= CURRENT_DATE - INTERVAL '7 days'
                 GROUP BY 
