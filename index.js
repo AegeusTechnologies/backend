@@ -13,11 +13,11 @@ const app = express();
 
 // PostgreSQL Client Configuration
 const pgClient = new Pool({
-    host: 'localhost',
-    port: 5432,
-    database: 'Robot_clp_data',
-    user: 'postgres',
-    password: '1983'
+    host: process.env.PG_HOST,
+    port: parseInt(process.env.PG_PORT, 10),
+    database: process.env.PG_DATABASE,
+    user: process.env.PG_USER,
+    password: process.env.PG_PASSWORD?.toString()
 });
 
 // Connect to PostgreSQL
@@ -44,7 +44,7 @@ const deviceData = new Map(); // to store the device in the device data in the m
 const deviceErrorData=new Map();// this isfor only to store the error data
 
 // MQTT Configuration
-const mqttBrokerUrl = 'mqtt://103.161.75.85:1885';
+const mqttBrokerUrl = process.env.MQTT_URL;
 const options = {
     clientId: 'mqttjs_' + Math.random().toString(16).substr(2, 8),
     username: 'YOUR_MQTT_USERNAME',
@@ -151,47 +151,36 @@ function setupMQTTClient() {
 }
 
 const PANEL_CONFIGS = {
-    MULTIPLICATION_FACTOR: 2, // 2 for dual panel, 1 for single panel
-    PANEL_TO_PANEL_GAPS: 10  // in mm, adjust based on site conditions
+    MULTIPLICATION_FACTOR :2,// 2 for dual panel, 1 for single panel
+    PANEL_TO_PANEL_GAPS: 3 // 10 meters converted to millimeters // in mm, adjust based on site conditions
 };
 
 async function processAndStoreData(dataObject) {
     try {
-
-        console.log(dataObject)
-
-        // Extract relevant values from the MQTT message
+        // Extract relevant values
         const deviceId = dataObject.deviceInfo.devEui;
         const deviceName = dataObject.deviceInfo.deviceName;
-        const currentOdometerValue =Number(dataObject.object.CH10)
-        const currentBatteryDischarge =Number(dataObject.object.CH6)
-        console.log(currentOdometerValue)
-        console.log(currentBatteryDischarge)
         
-        // Basic validation
-             // Enhanced validation
-             if (!deviceId || deviceId === '0' || deviceId === 0) {
-                console.log('Data rejected: Invalid or missing deviceId:', deviceId);
-                return;
-            }
-    
-            if (!deviceName) {
-                console.log('Data rejected: Missing deviceName');
-                return;
-            }
+        // Parse numeric values safely
+        const currentOdometerValue = parseFloat(dataObject.object.CH10);
+        const currentBatteryDischarge = parseFloat(dataObject.object.CH6);
 
-            
-
-         // Validate numeric values
-         if (isNaN(currentOdometerValue) || isNaN(currentBatteryDischarge)) {
-            console.log('Invalid numeric values:', {
-                currentOdometerValue,
-                currentBatteryDischarge
-            });
+        // Validate numeric values
+        if (isNaN(currentOdometerValue) || !isFinite(currentOdometerValue)) {
+            console.log('Invalid odometer value:', dataObject.object.CH10);
             return;
         }
 
-        
+        if (isNaN(currentBatteryDischarge) || !isFinite(currentBatteryDischarge)) {
+            console.log('Invalid battery discharge value:', dataObject.object.CH6);
+            return;
+        }
+
+        // Basic validation
+        if (!deviceId || !deviceName) {
+            console.log('Missing required fields:', { deviceId, deviceName });
+            return;
+        }
 
         // Step 1: Fetch the last two readings for this device
         const historyQuery = `
@@ -210,30 +199,31 @@ async function processAndStoreData(dataObject) {
 
         if (prevRes.rows.length > 0) {
             const lastRecord = prevRes.rows[0];
-            const previousOdometerValue = lastRecord.raw_odometer_value;
-            const previousTotalCleaned = lastRecord.panels_cleaned;
+            const previousOdometerValue = parseFloat(lastRecord.raw_odometer_value);
+            const previousTotalCleaned = parseFloat(lastRecord.panels_cleaned);
 
             // Detect EEPROM reset
             if (currentOdometerValue < previousOdometerValue) {
                 console.log('EEPROM reset detected');
-                // Add the current reading to the historical total
                 totalPanelsCleaned = previousTotalCleaned + calculateTotalPanelsCleaned(currentOdometerValue);
                 panelsCleanedSinceLast = calculateTotalPanelsCleaned(currentOdometerValue);
             } else {
-                // Normal case - no reset
                 const newPanelsCleaned = calculateTotalPanelsCleaned(currentOdometerValue - previousOdometerValue);
                 totalPanelsCleaned = previousTotalCleaned + newPanelsCleaned;
                 panelsCleanedSinceLast = newPanelsCleaned;
             }
 
-            // Validate the calculated values
-            if (panelsCleanedSinceLast <= 0) {
-                console.log('Data rejected: No new panels cleaned or invalid difference');
+            // Validate calculated values
+            if (isNaN(panelsCleanedSinceLast) || panelsCleanedSinceLast < 0) {
+                console.log('Invalid panels cleaned calculation:', panelsCleanedSinceLast);
+                shouldStore = false;
+            }
+
+            if (isNaN(totalPanelsCleaned) || totalPanelsCleaned < 0) {
+                console.log('Invalid total panels calculation:', totalPanelsCleaned);
                 shouldStore = false;
             }
         } else {
-            // First entry for this device
-            console.log('No previous data found for this device, setting initial values');
             panelsCleanedSinceLast = totalPanelsCleaned;
         }
 
@@ -251,19 +241,29 @@ async function processAndStoreData(dataObject) {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id;
             `;
+
+            // Ensure all numeric values are valid before insertion
             const values = [
                 deviceId,
                 deviceName,
-                panelsCleanedSinceLast,
-                currentOdometerValue,
-                totalPanelsCleaned,
-                currentBatteryDischarge
+                Number(panelsCleanedSinceLast),
+                Number(currentOdometerValue) ,
+                Number(totalPanelsCleaned) ,
+                Number(currentBatteryDischarge) 
             ];
+
             const insertRes = await pgClient.query(insertQuery, values);
             console.log(`Data inserted with ID: ${insertRes.rows[0].id}`);
         }
     } catch (error) {
         console.error('Error processing message:', error);
+        // Log detailed information about the values
+        console.error('Debug values:', {
+            deviceId: dataObject?.deviceInfo?.devEui,
+            deviceName: dataObject?.deviceInfo?.deviceName,
+            odometerValue: dataObject?.object?.CH10,
+            batteryDischarge: dataObject?.object?.CH6
+        });
     }
 }
 
@@ -492,7 +492,8 @@ app.post('/api/update-threshold', async (req, res) => {
 });
 const fetchWeatherData = async () => {
     try {
-        const response = await axios.get('http://localhost:5000/api/gateway');
+        const GATEWAY_API = process.env.GATEWAY_API_URL;
+        const response = await axios.get(`${GATEWAY_API}/api/gateway`);
         console.log(response.data.weather)
         return response.data.weather; // Assuming weather data is in this format
     } catch (error) {
@@ -629,7 +630,7 @@ app.get('/api/gateway', async (req, res) => {
 
         if (latitude && longitude) {
             // Fetch weather details using a weather API (e.g., OpenWeatherMap)
-            const weatherApiKey = '1b29179a8d70b1612449ed1bcddba70e'; // Hardcoded for testing
+            const weatherApiKey = process.env.WEATHER_API_KEY; // Hardcoded for testing
             const weatherResponse = await axios.get('https://api.openweathermap.org/data/2.5/weather', {
                 params: {
                     lat: latitude,
@@ -668,7 +669,7 @@ app.get('/api/gateway', async (req, res) => {
 
 app.get("/api/server", async(req, res) => {
     try {
-        const response = await apiClient.get('http://103.161.75.85:8082');
+        const response = await apiClient.get(process.env.API_URL);
         if (response.status === 200) {
             console.log("server is running successfully");
             return res.status(200).json({

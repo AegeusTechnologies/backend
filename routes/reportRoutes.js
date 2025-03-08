@@ -3,14 +3,15 @@ const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 
 const router = express.Router();
 const pgPool = new Pool({
-    host: 'localhost',
-    port: 5432,
-    database: 'Robot_clp_data',
-    user: 'postgres',
-    password: '1983'
+    host: process.env.PG_HOST,
+    port: parseInt(process.env.PG_PORT, 10),
+    database: process.env.PG_DATABASE,
+    user: process.env.PG_USER,
+    password: process.env.PG_PASSWORD?.toString(),
 });
 const DOWNLOADS_DIR = path.join(__dirname, '../downloads');
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
@@ -168,36 +169,6 @@ router.get('/yearly-report', async (req, res) => {
         res.json(reportData);
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate yearly report' });
-    }
-});
-
-// New API for getting lifetime totals
-// New API for getting total lifetime panels cleaned by all robots
-router.get('/total-lifetime-cleaned', async (req, res) => {
-    try {
-        const query = `
-            SELECT 
-                SUM(panels_cleaned) as total_lifetime_cleaned,
-                COUNT(DISTINCT device_id) as total_robots,
-                MIN(timestamp) as first_operation,
-                MAX(timestamp) as last_operation
-            FROM 
-                Robot_clp_data;
-        `;
-
-        const result = await pgPool.query(query);
-        res.json({
-            total_lifetime_cleaned: result.rows[0].total_lifetime_cleaned || 0,
-            total_robots: result.rows[0].total_robots || 0,
-            first_operation: result.rows[0].first_operation,
-            last_operation: result.rows[0].last_operation
-        });
-    } catch (error) {
-        console.error('Error fetching total lifetime cleaned:', error);
-        res.status(500).json({ 
-            error: 'Failed to retrieve total lifetime cleaned',
-            details: error.message 
-        });
     }
 });
 
