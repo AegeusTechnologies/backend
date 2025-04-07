@@ -2,73 +2,65 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const mqtt = require('mqtt'); 
-const { Pool } = require('pg');
-const reportRoutes = require('./routes/reportRoutes');
-const cron = require('node-cron');  
+//cconst mqtt = require('mqtt'); 
+//const { Pool } = require('pg');
+//const reportRoutes = require('./routes/reportRoutes');
+//const cron = require('node-cron');  
 const moment = require('moment');
 const { v4: uuidv4 } = require('uuid');
+const { setupMQTTClient2 } = require('./mqttConnection/mqtt');
+const redisClient = require('./config/redisConfig');
+const Reportrouter = require('./routes/reports');
+const allReportRouter = require('./routes/reportRoutes');
+const deviceRouter = require('./routes/getAllDevices');
+const TriggerAll = require('./routes/mutlicastGroupTri');
+const { setupMQTTClient3 } = require('./mqttConnection/mqttWeather');
+const { weatherRouter } = require('./routes/weatherData');
+const thresoldRouter = require('./routes/weatherThresoldRoute');
 require('dotenv').config(); 
 const app = express();
 
-// PostgreSQL Client Configuration
-const pgClient = new Pool({
-    host: process.env.PG_HOST,
-    port: parseInt(process.env.PG_PORT, 10),
-    database: process.env.PG_DATABASE,
-    user: process.env.PG_USER,
-    password: process.env.PG_PASSWORD?.toString()
-});
-
-// Connect to PostgreSQL
-pgClient.connect()
-    .then(() => console.log('Connected to PostgreSQL'))
-    .catch(err => console.error('Error connecting to PostgreSQL:', err));
 
 // Basic middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-app.use('/api', reportRoutes);
 
+setupMQTTClient2()
+setupMQTTClient3()
+//app.use('/api', reportRoutes);
+
+app.use('/api',Reportrouter)
+app.use('/api',allReportRouter)
+app.use('/api',deviceRouter)
+app.use('/api',TriggerAll)
+app.use('/api',weatherRouter)
+app.use('/api',thresoldRouter)
 // API configuration
-const API_URL = process.env.API_URL;
-const API_TOKEN = process.env.API_TOKEN;
 const APPLICATION_ID = process.env.APPLICATION_ID;
 const GATEWAYS_ID = process.env.GATEWAYS_ID;
 
 // Store device data in memory
 
-const deviceData = new Map(); // to store the device in the device data in the map  
 const deviceErrorData=new Map();// this isfor only to store the error data
 
-// MQTT Configuration
-const mqttBrokerUrl = process.env.MQTT_URL;
-const options = {
-    clientId: 'mqttjs_' + Math.random().toString(16).substr(2, 8),
-    username: 'YOUR_MQTT_USERNAME',
-    password: 'YOUR_MQTT_PASSWORD',
-    clean: true,
-    reconnectPeriod: 5000
-};
-
-// Create axios instance with default config
 const apiClient = axios.create({
-    baseURL: API_URL,
+    baseURL: process.env.API_URL,
     timeout: 5000,
     headers: {
-        'Grpc-Metadata-Authorization': `Bearer ${API_TOKEN}`,
+        'Grpc-Metadata-Authorization': `Bearer ${process.env.API_TOKEN}`,
         'accept': 'application/json',
     }
 });
+
 
 // Helper function to fetch devices
 async function fetchDevices() {
     try {
         const response = await apiClient.get('/api/devices', {
             params: {
-                limit: 100,
+                limit: 1000,
                 applicationId: APPLICATION_ID
             }
         });
@@ -78,479 +70,347 @@ async function fetchDevices() {
         return [];
     }
 }
+// this is pART 3  (scheduler code )
 
-// MQTT Client Setup
-function setupMQTTClient() {
-    const client = mqtt.connect(mqttBrokerUrl, options);
+// let weatherThresholds = {
+//     windSpeedThreshold: 10,
+//     humidityThreshold: 2,
+//     rainEnabled: false
+// };
 
-    client.on('connect', async () => {
-        console.log('Connected to MQTT broker');
-        try {
-            const devices = await fetchDevices();
-            const topic = `application/${APPLICATION_ID}/device/+/event/up`;
-            client.subscribe(topic, (err) => {
-                if (err) {
-                    console.error('Error subscribing to topic:', err);
-                } else {
-                    console.log(`Subscribed to topic: ${topic}`);
-                    console.log(`Monitoring ${devices.length} devices`);
-                }
-            });
-        } catch (error) {
-            console.error('Error setting up device monitoring:', error);
-        }
-    });
+// let scheduledTasks = new Map();  // storing the scheduled task here in memory
 
-    client.on('message', async (topic, message) => {
-        try {
-            const deviceEUI = topic.split('/')[3];
-            const data = JSON.parse(message.toString());
-            
-            // Store in memory (this is for the )
-            deviceData.set(deviceEUI, {
-                lastUpdate: new Date(),
-                data: data.object,
-                rssi:data.rxInfo[0].rssi,
-                deviceName:data.deviceInfo.deviceName
+// // Scheduling endpoint
+// app.post('/api/schedule-downlink', async (req, res) => {
+//     const { groupIds, scheduleTime } = req.body;
+    
+//     if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
+//         return res.status(400).json({ error: 'Invalid groupIds provided' });
+//     }
+//     if (!scheduleTime) {
+//         return res.status(400).json({ error: 'Schedule time is required' });
+//     }
 
-            });
-            //store the error data in the memory
-            deviceErrorData.set(deviceEUI,{
-                lastUpdate:new Date(),
-                fault:data.object.CH7,
-                Name:data.deviceInfo.deviceName,
-                deviceEUI:deviceEUI
-            })
-            console.log(deviceErrorData.Name)
+// try {
+//      // Parse the scheduled time
+//      const scheduledMoment = moment(scheduleTime);
 
-            console.log(deviceData) 
+//      if (scheduledMoment.isBefore(moment())) {
+//         scheduledMoment.add(1, 'day');
+//     }
 
-            
-            // Process and store in PostgreSQL
-            await processAndStoreData(data);
+//     // Calculate milliseconds until execution
+//     const msUntilExecution = scheduledMoment.diff(moment());
+//     console.log(`Task will execute in ${msUntilExecution}ms`);
+    
+//     const taskId = uuidv4();
 
-            console.log(`Received data from device ${deviceEUI}:`, data.object);
-        } catch (error) {
-            console.error('Error processing message:', error);
-        }
-    });
+//     const groupNames = await Promise.all(groupIds.map(async (groupId) => {
+//         try {
+//             const response = await apiClient.get(`/api/multicast-groups/${groupId}`);
+//             return response.data.name;
+//         } catch (error) {
+//             console.error(`Failed to get name for group ${groupId}:`, error);
+//             return `Unknown (${groupId})`;
+//         }
+//     }));
+//       // Store task with pending status
+//       scheduledTasks.set(taskId, {
+//         id: taskId,
+//         groupIds,
+//         groupNames,
+//         scheduleTime: scheduledMoment.format(),
+//         status: 'scheduled',
+//         createdAt: moment().format()
+//     });
 
-    client.on('error', (err) => {
-        console.error('MQTT Client Error:', err);
-    });
+//           // Use setTimeout instead of cron for more reliable single execution
+//           const timer = setTimeout(async () => {
+//             console.log(`[${moment().format()}] Executing scheduled downlink for task ${taskId}`);
+//             try {
+//                 // Check weather conditions right before execution
+//                 const updatedWeather = await fetchWeatherData();
+//                 console.log(`Weather data for task ${taskId}:`, updatedWeather);
+                
+//                 const updatedWeatherCheck = checkWeatherConditions(
+//                     updatedWeather,
+//                     weatherThresholds.windSpeedThreshold,
+//                     weatherThresholds.humidityThreshold,
+//                     weatherThresholds.rainEnabled
+//                 );
 
-    client.on('close', () => {
-        console.log('MQTT Client disconnected');
-    });
+//                 // If weather conditions aren't met, skip the task
+//                 if (!updatedWeatherCheck.valid) {
+//                     console.log(`Weather conditions not met. Skipping downlink for task ${taskId}: ${updatedWeatherCheck.message}`);
+//                     scheduledTasks.set(taskId, {
+//                         ...scheduledTasks.get(taskId),
+//                         status: 'skipped',
+//                         skipMessage: updatedWeatherCheck.message
+//                     });
+//                     return;
+//                 }
 
-    client.on('reconnect', () => {
-        console.log('MQTT Client reconnecting...');
-    });
+//                 // Send data to groups
+//                 console.log(`Sending data to groups for task ${taskId}:`, groupIds);
+//                 const response = await sendDataTOGroups(groupIds);
+//                 if(response.data,fCnt){
+//                 scheduledTasks.set(taskId, {
+//                     ...scheduledTasks.get(taskId),
+//                     status: 'completed',
+//                     executedAt: moment().format()
+//                 });
 
-    return client;
-}
+//                 }else{
 
-const PANEL_CONFIGS = {
-    MULTIPLICATION_FACTOR :2,// 2 for dual panel, 1 for single panel
-    PANEL_TO_PANEL_GAPS: 3 // 10 meters converted to millimeters // in mm, adjust based on site conditions
-};
-
-async function processAndStoreData(dataObject) {
-    try {
-        // Extract relevant values
-        const deviceId = dataObject.deviceInfo.devEui;
-        const deviceName = dataObject.deviceInfo.deviceName;
+//                     scheduledTasks.set(taskId, {
+//                         ...scheduledTasks.get(taskId),
+//                         status: 'failed',
+//                         error: error.message,
+//                         failedAt: moment().format()})
+//                 }   
+//                // console.log(`Successfully executed downlink for task ${taskId}`);
+//             } catch (error) {
+//                 console.error(`Error executing scheduled downlink for task ${taskId}:`, error);
+//                 // Update task status to failed
+//                 scheduledTasks.set(taskId, {
+//                     ...scheduledTasks.get(taskId),
+//                     status: 'Error',
+//                     error: error.message,
+//                     failedAt: moment().format()
+//                 });
+//             }
+//         }, msUntilExecution);
         
-        // Parse numeric values safely
-        const currentOdometerValue = parseFloat(dataObject.object.CH10);
-        const currentBatteryDischarge = parseFloat(dataObject.object.CH6);
+//         // Store the timer reference so we can cancel it if needed
+//         scheduledTasks.get(taskId).timer = timer;
+        
+//         res.status(200).json({
+//             message: 'Downlink scheduled successfully',
+//             taskId,
+//             scheduledTime: scheduledMoment.format(),
+//             groupIds,
+//             groupNames
+//         });
 
-        // Validate numeric values
-        if (isNaN(currentOdometerValue) || !isFinite(currentOdometerValue)) {
-            console.log('Invalid odometer value:', dataObject.object.CH10);
-            return;
-        }
+// } catch (error) {
+//     console.error('Error in schedule-downlink:', error);
+//     res.status(500).json({ error: 'Failed to schedule downlink' });
+// }
+// });
 
-        if (isNaN(currentBatteryDischarge) || !isFinite(currentBatteryDischarge)) {
-            console.log('Invalid battery discharge value:', dataObject.object.CH6);
-            return;
-        }
-
-        // Basic validation
-        if (!deviceId || !deviceName) {
-            console.log('Missing required fields:', { deviceId, deviceName });
-            return;
-        }
-
-        // Step 1: Fetch the last two readings for this device
-        const historyQuery = `
-            SELECT panels_cleaned, raw_odometer_value
-            FROM Robot_clp_data
-            WHERE device_id = $1 OR device_name = $2
-            ORDER BY timestamp DESC
-            LIMIT 2;
-        `;
-        const prevRes = await pgClient.query(historyQuery, [deviceId, deviceName]);
-
-        // Calculate panels cleaned based on EEPROM value and history
-        let panelsCleanedSinceLast = 0;
-        let shouldStore = true;
-        let totalPanelsCleaned = calculateTotalPanelsCleaned(currentOdometerValue);
-
-        if (prevRes.rows.length > 0) {
-            const lastRecord = prevRes.rows[0];
-            const previousOdometerValue = parseFloat(lastRecord.raw_odometer_value);
-            const previousTotalCleaned = parseFloat(lastRecord.panels_cleaned);
-
-            // Detect EEPROM reset
-            if (currentOdometerValue < previousOdometerValue) {
-                console.log('EEPROM reset detected');
-                totalPanelsCleaned = previousTotalCleaned + calculateTotalPanelsCleaned(currentOdometerValue);
-                panelsCleanedSinceLast = calculateTotalPanelsCleaned(currentOdometerValue);
-            } else {
-                const newPanelsCleaned = calculateTotalPanelsCleaned(currentOdometerValue - previousOdometerValue);
-                totalPanelsCleaned = previousTotalCleaned + newPanelsCleaned;
-                panelsCleanedSinceLast = newPanelsCleaned;
-            }
-
-            // Validate calculated values
-            if (isNaN(panelsCleanedSinceLast) || panelsCleanedSinceLast < 0) {
-                console.log('Invalid panels cleaned calculation:', panelsCleanedSinceLast);
-                shouldStore = false;
-            }
-
-            if (isNaN(totalPanelsCleaned) || totalPanelsCleaned < 0) {
-                console.log('Invalid total panels calculation:', totalPanelsCleaned);
-                shouldStore = false;
-            }
-        } else {
-            panelsCleanedSinceLast = totalPanelsCleaned;
-        }
-
-        // Step 2: Insert the new record if valid
-        if (shouldStore) {
-            const insertQuery = `
-                INSERT INTO Robot_clp_data (
-                    device_id,
-                    device_name,
-                    panels_cleaned,
-                    raw_odometer_value,
-                    cumulative_panels_cleaned,
-                    battery_discharge_cycle
-                )
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id;
-            `;
-
-            // Ensure all numeric values are valid before insertion
-            const values = [
-                deviceId,
-                deviceName,
-                Number(panelsCleanedSinceLast),
-                Number(currentOdometerValue) ,
-                Number(totalPanelsCleaned) ,
-                Number(currentBatteryDischarge) 
-            ];
-
-            const insertRes = await pgClient.query(insertQuery, values);
-            console.log(`Data inserted with ID: ${insertRes.rows[0].id}`);
-        }
-    } catch (error) {
-        console.error('Error processing message:', error);
-        // Log detailed information about the values
-        console.error('Debug values:', {
-            deviceId: dataObject?.deviceInfo?.devEui,
-            deviceName: dataObject?.deviceInfo?.deviceName,
-            odometerValue: dataObject?.object?.CH10,
-            batteryDischarge: dataObject?.object?.CH6
-        });
-    }
-}
-
-function calculateTotalPanelsCleaned(odometerValue) {
-    return Math.max(0, 
-        odometerValue * PANEL_CONFIGS.MULTIPLICATION_FACTOR - 
-        PANEL_CONFIGS.PANEL_TO_PANEL_GAPS
-    );
-}
-
-// Initialize MQTT client
-const mqttClient = setupMQTTClient();
-
-
-// this is pART 3 
-
-let weatherThresholds = {
-    windSpeedThreshold: 10,
-    humidityThreshold: 2,
-    rainEnabled: false
-};
-// API Routes
-let scheduledTasks = new Map();
-
-// Scheduling endpoint
-app.post('/api/schedule-downlink', async (req, res) => {
-    const { groupIds, scheduleTime } = req.body;
+// // Add endpoint to get task status
+// app.delete('/api/scheduled-tasks/:taskId', (req, res) => {
+//     const { taskId } = req.params;
+//     const task = scheduledTasks.get(taskId);
     
-    if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
-        return res.status(400).json({ error: 'Invalid groupIds provided' });
-    }
-    if (!scheduleTime) {
-        return res.status(400).json({ error: 'Schedule time is required' });
-    }
+//     if (!task) {
+//         return res.status(404).json({ error: 'Scheduled task not found' });
+//     }
 
-try {
+//     // Clear the timeout instead of stopping a cron job
+//     if (task.timer) {
+//         clearTimeout(task.timer);
+//     }
     
-    const currentConfig = weatherThresholds;
-      
-    // If conditions are good, proceed with scheduling
-    const scheduledMoment = moment(scheduleTime);
-    if (scheduledMoment.isBefore(moment())) {
-        scheduledMoment.add(1, 'day');
-    }
+//     // Update status before storing final state
+//     task.status = 'cancelled';
+//     task.cancelledAt = moment().format();
     
-    const taskId = uuidv4();
-    const cronJob = cron.schedule(
-        scheduledMoment.format('m H D M *'),
-        async () => {
-            try {
-                // If conditions aren't met, return error immediately
-                const updatedWeather = await fetchWeatherData();
-                const updatedWeatherCheck = checkWeatherConditions(
-                    updatedWeather,
-                    currentConfig.windSpeedThreshold,
-                    currentConfig.humidityThreshold,
-                    currentConfig.rainEnabled
-                );
+//     // Remove from storage
+//     scheduledTasks.delete(taskId);
 
-                // If the weather is no longer good, don't execute the task
-                if (!updatedWeatherCheck.valid) {
-                    console.log(`Weather is not good at the scheduled time. Skipping downlink for task ${taskId}`);
-                    scheduledTasks.set(taskId, {
-                        ...scheduledTasks.get(taskId),
-                        status: 'skipped',
-                        skipMessage: updatedWeatherCheck.message
-                    });
-                    return;
-                }
-
-                await sendDataTOGroups(groupIds);
-                console.log(`Downlink executed for task ${taskId} at ${moment()}`);
-                scheduledTasks.delete(taskId);
-            } catch (error) {
-                console.error('Error executing scheduled downlink:', error);
-            }
-        }
-    );
+//     res.json({
+//         message: 'Scheduled task cancelled successfully',
+//         taskId,
+//         status: 'cancelled'
+//     });
+// })
+// // Get all scheduled tasks
+// app.get('/api/scheduled-tasks', (req, res) => {
+//     const tasks = Array.from(scheduledTasks.values()).map(task => ({
+//         id: task.id,
+//         groupIds: task.name,
+//         groupNames: task.groupNames,
+//         scheduleTime: task.scheduleTime,
+//         status: task.status,
+//         createdAt: task.createdAt
+//     }));
     
-    const groupNames = await Promise.all(groupIds.map(async (groupId) => {
-        const response = await apiClient.get(`/api/multicast-groups/${groupId}`);
-        return response.data.name;
-    }));
+//     res.json({ tasks });
+// });
 
-    scheduledTasks.set(taskId, {
-        id: taskId,
-        groupIds,
-        groupNames,
-        scheduleTime: scheduledMoment.format(),
-        status: 'scheduled',
-        cronJob,
-        createdAt: moment().format()
-    });
+// // Cancel a scheduled task
+// app.delete('/api/scheduled-tasks/:taskId', (req, res) => {
+//     const { taskId } = req.params;
+//     const task = scheduledTasks.get(taskId);
     
-    res.status(200).json({
-        message: 'Downlink scheduled successfully',
-        taskId,
-        scheduledTime: scheduledMoment.format(),
-        groupIds,
-        groupNames
-    });
+//     if (!task) {
+//         return res.status(404).json({ error: 'Scheduled task not found' });
+//     }
+
+//     // Stop the cron job
+//     task.cronJob.stop();
+//     // Remove from storage
+//     scheduledTasks.delete(taskId);
+
+//     res.json({
+//         message: 'Scheduled task cancelled successfully',
+//         taskId
+//     });
+// }); 
+
+// this is to send the downlink 
+// const sendDataTOGroups = async (groupIds) => {
+//     const results = [];
+//     const errors = [];
     
-} catch (error) {
-    console.error('Error in schedule-downlink:', error);
-    res.status(500).json({ error: 'Failed to schedule downlink' });
-}
-});
-
-// Add endpoint to get task status
-app.get('/api/scheduled-tasks/:taskId', (req, res) => {
-    const taskId = req.params.taskId;
-    const task = scheduledTasks.get(taskId);
+//     for (const groupId of groupIds) {
+//         try {
+//             const response = await apiClient.post(`/api/multicast-groups/${groupId}/queue`, {
+//                 queueItem: {
+//                     data: 'Ag==',
+//                     fCnt: 0,
+//                     fPort: 1,
+//                 },
+//             });
+//             console.log(`Successfully sent downlink to group ${groupId}`);
+//             console.log(response.data.fCnt,"chripstack recvied")
+//             results.push({ groupId, success: true, response: response.data.fCnt});
+//         } catch (error) {
+//             console.error(`Failed to send downlink to group ${groupId}:`, error);
+//             errors.push({ groupId, error: error.message });
+//         }
+//     }
     
-    if (!task) {
-        return res.status(404).json({ error: 'Task not found' });
-    }
-    res.json({
-        id: task.id,
-        status: task.status,
-        error: task.error,
-        scheduleTime: task.scheduleTime,
-        groupNames: task.groupNames
-    });
-});
-
-
-// Get all scheduled tasks
-app.get('/api/scheduled-tasks', (req, res) => {
-    const tasks = Array.from(scheduledTasks.values()).map(task => ({
-        id: task.id,
-        groupIds: task.name,
-        groupNames: task.groupNames,
-        scheduleTime: task.scheduleTime,
-        status: task.status,
-        createdAt: task.createdAt
-    }));
+//     // If any group failed, throw an error with details
+//     if (errors.length > 0) {
+//         const errorMessage = `Failed to send downlink to ${errors.length} group(s)`;
+//         const combinedError = new Error(errorMessage);
+//         combinedError.errors = errors;
+//         combinedError.partialResults = results;
+//         throw combinedError;
+//     }
     
-    res.json({ tasks });
-});
+//     return results;
+// };
 
-// Cancel a scheduled task
-app.delete('/api/scheduled-tasks/:taskId', (req, res) => {
-    const { taskId } = req.params;
-    const task = scheduledTasks.get(taskId);
+// app.post('/api/update-threshold', async (req, res) => {
+//     try {
+//         const { windSpeedThreshold, humidityThreshold, rainEnabled } = req.body;
+
+//         // Validate inputs
+//         if (typeof windSpeedThreshold !== 'number' || windSpeedThreshold < 0) {
+//             return res.status(400).json({ 
+//                 error: 'Invalid wind speed threshold' 
+//             });
+//         }
+
+//         if (typeof humidityThreshold !== 'number' || 
+//             humidityThreshold < 0 ||
+//             humidityThreshold > 100) {
+//             return res.status(400).json({ 
+//                 error: 'Invalid humidity threshold' 
+//             });
+//         }
+
+//         if (typeof rainEnabled !== 'boolean') {
+//             return res.status(400).json({ 
+//                 error: 'Invalid rain enabled setting' 
+//             });
+//         }
+
+//         // Update thresholds
+//         weatherThresholds = {
+//             windSpeedThreshold,
+//             humidityThreshold,
+//             rainEnabled
+//         };
+
+//         // Log the update
+//         console.log('Updated weather thresholds:', weatherThresholds);
+
+//         res.status(200).json({
+//             message: 'Thresholds updated successfully',
+//             currentThresholds: weatherThresholds
+//         });
+
+//     } catch (error) {
+//         console.error('Error updating thresholds:', error);
+//         res.status(500).json({
+//             error: 'Failed to update thresholds',
+//             details: error.message
+//         });
+//     }
+// });
+// const fetchWeatherData = async () => {
+//     try {
+//         const GATEWAY_API = process.env.GATEWAY_API_URL;
+//         const response = await axios.get(`${GATEWAY_API}/api/gateway`);
+//         console.log(response.data.weather)
+//         return response.data.weather; 
+//     } catch (error) {
+//         console.error('Failed to fetch weather data:', error);
+//         throw error;
+//     }
+// };
+// const checkWeatherConditions = (weather, windSpeedThreshold, humidityThreshold, rainEnabled) => {
+//     // First check for rain if rain detection is enabled
+//     if (rainEnabled && weather.rain > 0) {
+//         return { 
+//             valid: false, 
+//             message: `Operation disabled due to rain detection: ${weather.rain} mm` 
+//         };
+//     }
     
-    if (!task) {
-        return res.status(404).json({ error: 'Scheduled task not found' });
-    }
+//     // Check if the wind speed exceeds the threshold
+//     if (weather.windSpeed > windSpeedThreshold) {
+//         return { 
+//             valid: false, 
+//             message: `Wind speed exceeds the threshold: ${weather.windSpeed} m/s` 
+//         };
+//     } 
+//     // Check if the humidity exceeds the threshold
+//     if (weather.humidity > humidityThreshold) {
+//         return { 
+//             valid: false, 
+//             message: `Humidity exceeds the threshold: ${weather.humidity}%` 
+//         };
+//     }
+//     // Return success message along with valid status
+//     return { 
+//         valid: true,
+//         message: "Weather conditions are suitable for operation"
+//     };
+// };
 
-    // Stop the cron job
-    task.cronJob.stop();
-    // Remove from storage
-    scheduledTasks.delete(taskId);
 
-    res.json({
-        message: 'Scheduled task cancelled successfully',
-        taskId
-    });
-}); 
-const sendDataTOGroups = async (groupIds) => {
-    try {
-        const promises = groupIds.map(groupId =>
-            apiClient.post(`/api/multicast-groups/${groupId}/queue`, {
-                queueItem: {
-                    data: 'Ag==',
-                    fCnt: 0,
-                    fPort: 1,
-                },
-            })
-        );
-        await Promise.all(promises);
-        console.log('Successfully sent downlink to the group:', groupIds);
-    } catch (error) {
-        console.error('Error sending downlink to groups:', error);
-        throw error; // Add this line
-    }
-};
-
-app.post('/api/update-threshold', async (req, res) => {
-    try {
-        const { windSpeedThreshold, humidityThreshold, rainEnabled } = req.body;
-
-        // Validate inputs
-        if (typeof windSpeedThreshold !== 'number' || windSpeedThreshold < 0) {
-            return res.status(400).json({ 
-                error: 'Invalid wind speed threshold' 
-            });
-        }
-
-        if (typeof humidityThreshold !== 'number' || 
-            humidityThreshold < 0 ||
-            humidityThreshold > 100) {
-            return res.status(400).json({ 
-                error: 'Invalid humidity threshold' 
-            });
-        }
-
-        if (typeof rainEnabled !== 'boolean') {
-            return res.status(400).json({ 
-                error: 'Invalid rain enabled setting' 
-            });
-        }
-
-        // Update thresholds
-        weatherThresholds = {
-            windSpeedThreshold,
-            humidityThreshold,
-            rainEnabled
-        };
-
-        // Log the update
-        console.log('Updated weather thresholds:', weatherThresholds);
-
-        res.status(200).json({
-            message: 'Thresholds updated successfully',
-            currentThresholds: weatherThresholds
-        });
-
-    } catch (error) {
-        console.error('Error updating thresholds:', error);
-        res.status(500).json({
-            error: 'Failed to update thresholds',
-            details: error.message
-        });
-    }
-});
-const fetchWeatherData = async () => {
-    try {
-        const GATEWAY_API = process.env.GATEWAY_API_URL;
-        const response = await axios.get(`${GATEWAY_API}/api/gateway`);
-        console.log(response.data.weather)
-        return response.data.weather; // Assuming weather data is in this format
-    } catch (error) {
-        console.error('Failed to fetch weather data:', error);
-        throw error;
-    }
-};
-const checkWeatherConditions = (weather, windSpeedThreshold, humidityThreshold, rainEnabled) => {
-    // First check for rain if rain detection is enabled
-    if (rainEnabled && weather.rain > 0) {
-        return { 
-            valid: false, 
-            message: `Operation disabled due to rain detection: ${weather.rain} mm` 
-        };
-    }
-    
-    // Check if the wind speed exceeds the threshold
-    if (weather.windSpeed > windSpeedThreshold) {
-        return { 
-            valid: false, 
-            message: `Wind speed exceeds the threshold: ${weather.windSpeed} m/s` 
-        };
-    } 
-    // Check if the humidity exceeds the threshold
-    if (weather.humidity > humidityThreshold) {
-        return { 
-            valid: false, 
-            message: `Humidity exceeds the threshold: ${weather.humidity}%` 
-        };
-    }
-    // Return success message along with valid status
-    return { 
-        valid: true,
-        message: "Weather conditions are suitable for operation"
-    };
-};
-
-app.get('/api/get-errors', async (req, res) => {
-    const errors = Array.from(deviceErrorData.values()).map(value => ({
-        deviceEUI: value.deviceEUI,
-        lastUpdate: value.lastUpdate,
-        fault: value.fault,
-        controlPannelName:value.Name
-    }));
-    console.log("this is the faulterror datatobedisplayed")
-    console.log(errors)
-    res.json(errors);
-});
-
-app.get('/api/devices/:deviceEUI/data', (req, res) => {
-    const data = deviceData.get(req.params.deviceEUI);
+app.get('/api/devices/:deviceEUI/data', async (req, res) => {
+    const data = await  redisClient.get(req.params.deviceEUI);
     if (data) {
         res.json(data);
     } else {
         res.status(404).json({ error: 'No data found for device' });
     }
 });
+
+app.get('/api/get-errors', async (req, res) => {
+    try {
+        // Convert the deviceErrorData Map to an array of values
+        const errorInfoList = Array.from(deviceErrorData.values());
+
+        if (errorInfoList.length === 0) {
+            return res.status(404).json({ error: 'No error data found' });
+        }
+
+        // Respond with the array of error information
+        res.json(errorInfoList);
+
+    } catch (error) {
+        console.error('Error fetching data from deviceErrorData:', error);
+        res.status(500).json({ error: 'Failed to fetch data from deviceErrorData' });
+    }
+});
+
 
 app.get('/api/multicast-groups', async (req, res) => {
     try {
@@ -569,7 +429,8 @@ app.get('/api/multicast-groups', async (req, res) => {
         });
     }
 });
-
+ 
+// this api is to get the all device
 app.get('/api/devices', async (req, res) => {
     try {
         const devices = await fetchDevices();
@@ -583,6 +444,32 @@ app.get('/api/devices', async (req, res) => {
     }
 });
 
+
+
+
+// this api is to get the devices of that particular multicasrt group
+
+app.get('/api/devices/:groupId', async (req, res) => {
+    const { groupId } = req.params;
+    try {
+        const response = await apiClient.get('/api/devices', {
+            params: {
+                limit: 1000,
+                applicationId: APPLICATION_ID,
+                multicastGroupId: groupId
+            }
+        });
+        res.json({ result: response.data.result }); // Send proper response
+    } catch (error) {
+        console.error('Error fetching devices:', error);
+        res.status(500).json({ // Add error handling
+            error: 'Failed to fetch devices',
+            details: error.response?.data || error.message
+        });
+    }
+});
+
+// this 
 
 
 app.post('/api/devices/:deviceId/queue', async (req, res) => {
@@ -714,6 +601,15 @@ app.get('/api/allGateways',async(req,res)=>{
 
 
 })
+
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({
+        success: false,
+        error: 'Something broke!'
+    });
+});
+
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
