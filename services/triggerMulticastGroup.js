@@ -129,40 +129,41 @@ setInterval(() => {
 
 
 async function Scheduler(req, res) {
-    const { groupId, scheduleTime } = req.body;
+    const { groupId, scheduleTimeMs } = req.body;
     console.log("Received groupId:", groupId);
-    console.log("Received scheduleTime:", scheduleTime);
+    console.log("Received scheduleTimeMs:", scheduleTimeMs);
     
     if (!groupId || !Array.isArray(groupId) || groupId.length === 0) {
         return res.status(400).json({ error: 'Invalid groupIds provided' });
     }
-    if (!scheduleTime) {
-        return res.status(400).json({ error: 'Schedule time is required' });
+    if (!scheduleTimeMs || isNaN(scheduleTimeMs)) {
+        return res.status(400).json({ error: 'Valid schedule time in milliseconds is required' });
     }
 
     try {
-        // Parse the scheduled time in IST and calculate delay
-        const scheduledTime = moment.tz(scheduleTime, 'Asia/Kolkata');
-        const now = moment().tz('Asia/Kolkata');
+        // Create moment objects from the timestamp
+        const scheduledTime = moment(Number(scheduleTimeMs));
+        const now = moment();
         
         // Calculate milliseconds until the scheduled time
         let delay = scheduledTime.valueOf() - now.valueOf();
         
         // If time is in the past, schedule for the next day
         if (delay < 0) {
+            console.log("Time is in the past, adding 24 hours");
             scheduledTime.add(1, 'days');
             delay = scheduledTime.valueOf() - now.valueOf();
         }
         
-        console.log(`Current time IST: ${now.format('YYYY-MM-DD HH:mm:ss z')}`);
-        console.log(`Scheduled time IST: ${scheduledTime.format('YYYY-MM-DD HH:mm:ss z')}`);
+        console.log(`Current time: ${now.format('YYYY-MM-DD HH:mm:ss z')}`);
+        console.log(`Scheduled time: ${scheduledTime.format('YYYY-MM-DD HH:mm:ss z')}`);
         console.log(`Delay: ${delay} ms (${delay / 1000 / 60} minutes)`);
         
         const taskId = uuidv4();
         
         // Schedule the task using setTimeout
         const timeoutId = setTimeout(async () => {
-            console.log(`[${taskId}] Executing scheduled task at ${moment().tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss z')}`);
+            console.log(`[${taskId}] Executing scheduled task at ${moment().format('YYYY-MM-DD HH:mm:ss z')}`);
             
             try {
                 // Process each group
@@ -220,7 +221,7 @@ async function Scheduler(req, res) {
             }
         }, delay);
         
-        // Store the scheduled task info with consistent time format
+        // Store the scheduled task info
         SchedularTask.set(taskId, {
             timeoutId,
             groupIds: groupId,
