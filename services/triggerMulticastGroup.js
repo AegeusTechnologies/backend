@@ -1,11 +1,13 @@
 const axios = require('axios');
-const moment= require('moment');
-const schedule = require('node-schedule')
+const moment = require('moment-timezone');
+const schedule = require('node-schedule');
 const {v4: uuidv4} = require('uuid');
 
 const errors = [];
 const missing = new Map();
 const results = [];
+// Using Map to store scheduled timeouts
+let SchedularTask = new Map();
 
 const apiClient = axios.create({
     baseURL: process.env.API_URL,
@@ -16,15 +18,23 @@ const apiClient = axios.create({
     }
 });
 
-async function triggermulticastGroup(req, res, next) {
-    if (!req.body || !req.body.groupId || !Array.isArray(req.body.groupId)) {
+async function triggermulticastGroup(req, res) {
+    if (!req.body || !req.body.groupId || !req.body.data || !Array.isArray(req.body.groupId) || req.body.groupId.length === 0) {
         return res.status(400).json({
             success: false,
-            error: 'Invalid request. groupId array is required'
+            error: 'Invalid request. groupId array is required or data is required.'
         });
     }
-    const groupId = req.body.groupId;
-    console.log("Received groupId:", groupId);
+    const {groupId, data} = req.body;
+
+    // Validate or sanitize the data
+    if (typeof data !== 'string' || !/^[A-Za-z0-9+/=]*$/.test(data)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid data format. Data must be a Base64-encoded string.'
+        });
+    }
+    
 
     try {
       
@@ -51,7 +61,7 @@ async function triggermulticastGroup(req, res, next) {
                         try {
                             const downlinkResponse = await apiClient.post(`/api/devices/${device.devEui}/queue`, {
                                 queueItem: {
-                                    data: "Ag==",
+                                    data: data.trim(), // Ensure no extra spaces
                                     fCnt: 0,
                                     fPort: 1,
                                     confirmed: true,
@@ -115,15 +125,13 @@ setInterval(() => {
     missing.clear();
     errors.length = 0;
     results.length = 0;
-}, 30 * 60 * 1000);
-
-
-
-let SchedularTask= new Map(); // storing the task id for the schedular
+}, 1000);
 
 
 async function Scheduler(req, res) {
     const { groupId, scheduleTime } = req.body;
+    console.log("Received groupId:", groupId);
+    console.log("Received scheduleTime:", scheduleTime);
     
     if (!groupId || !Array.isArray(groupId) || groupId.length === 0) {
         return res.status(400).json({ error: 'Invalid groupIds provided' });
@@ -133,21 +141,37 @@ async function Scheduler(req, res) {
     }
 
     try {
-        const scheduleMoment = moment(scheduleTime);
-
-        if (scheduleMoment.isBefore(moment())) {
-            scheduleMoment.add(1, 'days');
+        // Parse the scheduled time in IST and calculate delay
+        const scheduledTime = moment.tz(scheduleTime, 'Asia/Kolkata');
+        const now = moment().tz('Asia/Kolkata');
+        
+        // Calculate milliseconds until the scheduled time
+        let delay = scheduledTime.valueOf() - now.valueOf();
+        
+        // If time is in the past, schedule for the next day
+        if (delay < 0) {
+            scheduledTime.add(1, 'days');
+            delay = scheduledTime.valueOf() - now.valueOf();
         }
-
+        
+        console.log(`Current time IST: ${now.format('YYYY-MM-DD HH:mm:ss z')}`);
+        console.log(`Scheduled time IST: ${scheduledTime.format('YYYY-MM-DD HH:mm:ss z')}`);
+        console.log(`Delay: ${delay} ms (${delay / 1000 / 60} minutes)`);
+        
         const taskId = uuidv4();
         
-        // Schedule the task
-        const job = schedule.scheduleJob(scheduleMoment.toDate(), async () => {
+        // Schedule the task using setTimeout
+        const timeoutId = setTimeout(async () => {
+            console.log(`[${taskId}] Executing scheduled task at ${moment().tz('Asia/Kolkata').format('YYYY-MM-DD HH:mm:ss z')}`);
+            
             try {
-                // Reuse the existing triggermulticastGroup logic
-                await Promise.all(groupId.map(async (gId) => {
+                // Process each group
+                for (const gId of groupId) {
+                    console.log(`[${taskId}] Processing group: ${gId}`);
                     try {
                         const devices = [];
+                        
+                        // Get devices for the group
                         const deviceResponse = await apiClient.get('/api/devices', {
                             params: {
                                 limit: 1000,
@@ -156,11 +180,14 @@ async function Scheduler(req, res) {
                             }
                         });
 
-                        if (deviceResponse.data.result) {
+                        if (deviceResponse.data && deviceResponse.data.result) {
                             devices.push(...deviceResponse.data.result);
+                            console.log(`[${taskId}] Found ${devices.length} devices for group: ${gId}`);
                             
-                            await Promise.all(devices.map(async (device) => {
+                            // Process each device
+                            for (const device of devices) {
                                 try {
+                                    console.log(`[${taskId}] Sending downlink to device: ${device.devEui}`);
                                     await apiClient.post(`/api/devices/${device.devEui}/queue`, {
                                         queueItem: {
                                             data: "Ag==",
@@ -169,37 +196,45 @@ async function Scheduler(req, res) {
                                             confirmed: true,
                                         }
                                     });
-                                } catch (error) {
-                                    console.error(`Scheduled downlink failed for device ${device.devEui}:`, error);
+                                    console.log(`[${taskId}] Successfully sent downlink to ${device.devEui}`);
+                                } catch (deviceError) {
+                                    console.error(`[${taskId}] Failed to send downlink to ${device.devEui}: ${deviceError.message}`);
                                 }
-                            }));
+                                
+                                // Add a small delay between requests
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                            }
+                        } else {
+                            console.warn(`[${taskId}] No devices found for group: ${gId}`);
                         }
-                    } catch (error) {
-                        console.error(`Scheduled group processing failed for ${gId}:`, error);
+                    } catch (groupError) {
+                        console.error(`[${taskId}] Failed to process group ${gId}: ${groupError.message}`);
                     }
-                }));
+                }
             } catch (error) {
-                console.error('Scheduled task failed:', error);
+                console.error(`[${taskId}] Overall execution error: ${error.message}`);
             } finally {
                 // Clean up the scheduled task
                 SchedularTask.delete(taskId);
+                console.log(`[${taskId}] Task removed from scheduler`);
             }
-        });
-
-        // Store the scheduled job
+        }, delay);
+        
+        // Store the scheduled task info with consistent time format
         SchedularTask.set(taskId, {
-            job,
+            timeoutId,
             groupIds: groupId,
-            scheduledTime: scheduleMoment.format(),
+            scheduledTime: scheduledTime.format('YYYY-MM-DD HH:mm:ss z'),
+            createdAt: now.format('YYYY-MM-DD HH:mm:ss z')
         });
-
+        
         return res.status(200).json({
             success: true,
             taskId,
-            scheduledTime: scheduleMoment.format(),
-            groupIds: groupId
+            scheduledTime: scheduledTime.format('YYYY-MM-DD HH:mm:ss z'),
+            groupIds: groupId,
+            delayMs: delay
         });
-
     } catch (error) {
         console.error('Scheduler error:', error);
         return res.status(500).json({
@@ -208,18 +243,69 @@ async function Scheduler(req, res) {
         });
     }
 }
+// Updated cancel function for setTimeout
+async function cancelScheduledTask(req, res) {
+    const taskId = req.params.taskId;
+    
+    if (!taskId) {
+        return res.status(400).json({ error: 'Invalid taskId provided' });
+    }
 
-// Add function to get scheduled tasks
+    try {
+        const task = SchedularTask.get(taskId);
+        
+        if (!task) {
+            return res.status(404).json({
+                success: false,
+                error: `Task with ID ${taskId} not found`
+            });
+        }
+        
+        // Clear the timeout
+        clearTimeout(task.timeoutId);
+        
+        // Remove from our task map
+        SchedularTask.delete(taskId);
+        
+        console.log(`Task ${taskId} successfully canceled`);
+        
+        return res.status(200).json({
+            success: true,
+            message: `Task with ID ${taskId} has been cancelled`,
+            taskDetails: {
+                taskId,
+                scheduledTime: task.scheduledTime,
+                groupIds: task.groupIds
+            }
+        });
+    } catch (error) {
+        console.error(`Error canceling task ${taskId}:`, error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+}
+
+// Get all scheduled tasks
 async function getScheduledTasks(req, res) {
     try {
-        const tasks = Array.from(SchedularTask.entries()).map(([id, task]) => ({
-            taskId: id,
-            scheduledTime: task.scheduledTime,
-            groupIds: task.groupIds
-        }));
+        const now = moment().tz('Asia/Kolkata');
+        const tasks = Array.from(SchedularTask.entries()).map(([id, task]) => {
+            // Parse the stored time consistently
+            const scheduledMoment = moment.tz(task.scheduledTime, 'YYYY-MM-DD HH:mm:ss z', 'Asia/Kolkata');
+            return {
+                taskId: id,
+                scheduledTime: task.scheduledTime,
+                groupIds: task.groupIds,
+                remainingTime: scheduledMoment.valueOf() - now.valueOf(),
+                remainingMinutes: Math.round((scheduledMoment.valueOf() - now.valueOf()) / (1000 * 60))
+            };
+        });
 
         return res.status(200).json({
             success: true,
+            currentTime: now.format('YYYY-MM-DD HH:mm:ss z'),
             tasks
         });
     } catch (error) {
@@ -230,20 +316,6 @@ async function getScheduledTasks(req, res) {
     }
 }
 
-async function cancelScheduledTask(req,res){
-    const taskID= req.params.taskId;
-    if(!taskID){
-        return res.status(400).json({error:'Invalid taskId provided'});
-    }
-
-    const task = SchedularTask.get(taskID)
-
-    res.status(200).json({
-        success:true,
-        message:`Task with ID ${taskID} has been cancelled`,
-        taskDetails: task
-    })
-}
 
 module.exports = {
     triggermulticastGroup,

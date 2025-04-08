@@ -26,7 +26,7 @@ model Robot_data {
 model ThresoldWeatherData {
   id   Int @id @default(autoincrement())
   windSpeed Float 
-  windDirection Float
+  windDirection String
   temperature Float
   humidity Float
   rain_gauge Float

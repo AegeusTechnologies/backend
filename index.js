@@ -37,6 +37,7 @@ app.use('/api',deviceRouter)
 app.use('/api',TriggerAll)
 app.use('/api',weatherRouter)
 app.use('/api',thresoldRouter)
+
 // API configuration
 const APPLICATION_ID = process.env.APPLICATION_ID;
 const GATEWAYS_ID = process.env.GATEWAYS_ID;
