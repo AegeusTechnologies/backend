@@ -89,7 +89,7 @@ async function mqttEvents() {
 }
 
 async function getAllMessage() {
-    return (messageHistory);
+    return [...messageHistory].reverse();
 }
 
 async function getMessageCount() {

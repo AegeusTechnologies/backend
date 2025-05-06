@@ -6,9 +6,7 @@ async function newData(data) {
         const solarPanelCleaned = parseFloat(data.object.CH10) * 
             (Number(process.env.MULTIPLICATION_FACTOR) - Number(process.env.PANNELS_GAP));
 
-        // Validate calculated value
         if (solarPanelCleaned < 0) {
-            console.info("no panel is cleaned")
             return
         }
 
@@ -19,7 +17,6 @@ async function newData(data) {
                 panels_cleaned: solarPanelCleaned,
                 raw_odometer_value: data.object.CH10,
                 battery_discharge_cycle: data.object.CH6,
-                //created: new Date() // Add timestamp
             }
         });
 
@@ -34,9 +31,10 @@ async function newData(data) {
             stack: error.stack,
             data: JSON.stringify(data)
         });
-        throw error; // Rethrow to handle at higher level
+        throw error; 
     }
 }
+
 
 async function odometerIfReset(data, previousOdometerValue, previousPannelsCleaned) {
     try {
@@ -56,7 +54,6 @@ async function odometerIfReset(data, previousOdometerValue, previousPannelsClean
                 panels_cleaned: solarPanelCleaned,
                 raw_odometer_value: totalOdometerValue,
                 battery_discharge_cycle: data.object.CH6
-                // Add created field if needed
             }
         });
 
@@ -90,7 +87,7 @@ async function odometerIfNotReset(data, previousPannelsCleaned){
             }
         });
         
-        return {  // FIXED: Added return statement
+        return {  
             success: true,
             message: "Data stored - odometer advanced",
             data: result

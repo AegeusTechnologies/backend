@@ -10,7 +10,7 @@ async function storeDataToRedis(data){
         const key = data.deviceInfo.devEui;
         const value = JSON.stringify(data);
         await redisClient.set(key, value);
-        await getAllErrorData(data.deviceInfo.devEui,data.object.CH7)
+        await getAllErrorData(data.deviceInfo.devEui,data.deviceInfo.deviceName,data.object.CH7)
  
     
     } catch (error) {

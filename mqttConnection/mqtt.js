@@ -1,6 +1,8 @@
 const mqtt = require('mqtt');
 const storeDataToDatabase = require('./prismaData');
 const storeDataToRedis = require('./redisData');
+const { default: axios } = require('axios');
+const { getAllErrorData } = require('../services/errorData');
 
 const mqttBrokerURL = process.env.MQTT_URL;
 const options = {
@@ -49,8 +51,47 @@ async function handleMessage(_topic, message) {
         console.log("Message received from the MQTT broker:", data);
         await storeDataToDatabase(data);
         await storeDataToRedis(data);
-        return data;
+        await getAllErrorData(data.deviceInfo.devEui,data.deviceInfo.deviceName,data.object.CH7);
+
+        const timestamp = Date.now();
+        const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
+        const uniqueId = `${timestamp}${random10Digit}`.slice(0, 10);
+        
+        const payload = {
+            "data_id": `AEG5${uniqueId}`,
+            "robot_id": `AEG5${data.object.CH1}`,
+            "robot_status": data.object.CH2 ? "RUNNING" : "STOPPED",
+            "battery_percent": data.object.CH4,
+            "fault_code": data.object.CH7, 
+            "total_running_length": data.object.CH10,
+            "total_panels_cleaned": 2 * data.object.CH10 * (Number(process.env.MULTIPLICATION_FACTOR) - Number(process.env.PANNELS_GAP)),
+        }
+
+        console.log("Payload to be sent to AWS:", payload);
+
+        // try {
+        //     const response = await axios.post(process.env.AWS_ENDPOINT_URL, payload, {
+        //         headers: {
+        //             'Content-Type': 'application/json'
+        //         },
+        //         timeout: 5000 
+        //     });
+            
+        //     console.log("Data sent to AWS successfully:", response.data);
+        //     return data;
+        // } catch (axiosError) {
+        //     console.error("AWS API Error:", {
+        //         status: axiosError.response?.status,
+        //         message: axiosError.message,
+        //         url: process.env.AWS_ENDPOINT_URL,
+        //         data: axiosError.response?.data
+        //     });
+            
+        //     // You might want to store failed requests for retry
+        //     throw new Error(`AWS API Error: ${axiosError.message}`);
+        // }
     } catch (error) {
+        console.error("Message handling error:", error);
         throw error;
     }
 }

@@ -2,6 +2,8 @@ const prisma = require("../config/prismaConfig");
 const { newData, odometerIfNotReset, odometerIfReset } = require("../storingDataFunctions/newData");
 
 
+
+
 async function storeDataToDatabase(data) {
     try {
         // Skip invalid data
