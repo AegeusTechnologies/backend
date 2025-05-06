@@ -14,6 +14,7 @@ const thresoldRouter = require('./routes/weatherThresoldRoute');
 const event = require('./routes/mqttEventsRoutes');
 const { mqttEvents } = require('./mqttConnection/mqttEvents');
 const robotError = require('./routes/robotErrorRoutes');
+const statusRouter = require('./routes/statusRobot');
 require('dotenv').config(); 
 const app = express();
 
@@ -37,6 +38,7 @@ app.use('/api',weatherRouter);
 app.use('/api',thresoldRouter);
 app.use('/api',event);
 app.use('/api',robotError)
+app.use('/api',statusRouter);
 
 // API configuration
 const APPLICATION_ID = process.env.APPLICATION_ID;

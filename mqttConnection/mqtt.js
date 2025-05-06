@@ -3,6 +3,7 @@ const storeDataToDatabase = require('./prismaData');
 const storeDataToRedis = require('./redisData');
 const { default: axios } = require('axios');
 const { getAllErrorData } = require('../services/errorData');
+const storeStatusData = require('./statusRobotRedis');
 
 const mqttBrokerURL = process.env.MQTT_URL;
 const options = {
@@ -16,7 +17,7 @@ const options = {
 
 async function setupMQTTClient2() {
 
-    console.log({" iam here i  mqtt": mqttBrokerURL});
+   // console.log({" iam here i  mqtt": mqttBrokerURL});
     const client = mqtt.connect(mqttBrokerURL, options);
 
     client.on('connect', async () => {
@@ -51,7 +52,7 @@ async function handleMessage(_topic, message) {
         console.log("Message received from the MQTT broker:", data);
         await storeDataToDatabase(data);
         await storeDataToRedis(data);
-        await getAllErrorData(data.deviceInfo.devEui,data.deviceInfo.deviceName,data.object.CH7);
+        await storeStatusData(data)      // await getAllErrorData(data.deviceInfo.devEui,data.deviceInfo.deviceName,data.object.CH7);
 
         const timestamp = Date.now();
         const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
