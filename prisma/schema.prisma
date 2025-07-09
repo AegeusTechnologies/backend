@@ -32,3 +32,16 @@ model ThresoldWeatherData {
   rain_gauge Float
   createdAt              DateTime @default(now())
 }
+
+model Availability{
+ id Int @id @default(autoincrement())
+ // String @unique
+ totalRobot Int 
+ ActiveRunRobot Int
+ ActiveIdleRobot Int
+ //TotalRunningLength Int
+ RobotActivePercentage Float
+ createdAt DateTime @default(now())
+ updateAt DateTime @updatedAt
+
+}

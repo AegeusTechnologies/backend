@@ -161,8 +161,7 @@ Reportrouter.post('/robot-battery-report/weekly', async (req, res) => {
 
 Reportrouter.post('/robot-panels-report/weekly', async (req, res) => {
     try {
-        // Query for the past 7 days of robot data with daily TOTAL panels cleaned across all robots
-        // Note the SUM instead of AVG and the properly quoted table name
+       
         const robotReports = await prisma.$queryRaw`
             SELECT 
                 DATE_TRUNC('day', "createdAt") as date,
@@ -246,5 +245,6 @@ Reportrouter.post('/robot-panels-report/weekly', async (req, res) => {
         });
     }
 });
+
 
 module.exports = Reportrouter;

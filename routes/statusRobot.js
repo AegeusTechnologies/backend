@@ -7,11 +7,9 @@ statusRouter.get('/status/:devEui', async (req, res) => {
     try {
         const data = await redisClient.get(key);
         if (data) {
-            // Handle both JSON and non-JSON data
             try {
                 res.json(JSON.parse(data));
             } catch {
-                // If data is not JSON, send it as a plain string
                 res.json({ status: data });
             }
         } else {

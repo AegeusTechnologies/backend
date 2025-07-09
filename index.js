@@ -34,7 +34,7 @@ app.use('/api',Reportrouter);
 app.use('/api',allReportRouter);
 app.use('/api',deviceRouter);
 app.use('/api',TriggerAll);
-app.use('/api',weatherRouter);
+//app.use('/api',weatherRouter);
 app.use('/api',thresoldRouter);
 app.use('/api',event);
 app.use('/api',robotError)

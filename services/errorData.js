@@ -10,7 +10,7 @@ const errorMap = new Map();
  */
 async function getAllErrorData(devEui,deviceName, errorMessage) {
     try {
-        if (!devEui || !errorMessage) {
+        if (!devEui) {
             throw new Error('DevEUI and error message are required');
         }
 
