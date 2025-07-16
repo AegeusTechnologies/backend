@@ -1,7 +1,7 @@
 const mqtt = require('mqtt');
 
 const applicationId = process.env.APPLICATION_ID;
-const mqttBroker = process.env.MQTT_BROKER_URL 
+const mqttBroker = process.env.MQTT_URL;
 const topics = [
     `application/${applicationId}/device/+/event/txack`,
     `application/${applicationId}/device/+/event/ack`
@@ -31,7 +31,7 @@ async function mqttEvents() {
     const client = mqtt.connect(config.broker, config.clientOptions);
 
     client.on('connect', () => {
-        console.log('Connected to MQTT broker');
+        console.log('Connected to MQTT broker for the evebts and txacks');
         client.subscribe(config.topics, (err) => {
             if (err) {
                 console.error('Subscription error:', err);
@@ -42,6 +42,7 @@ async function mqttEvents() {
     });
 
     client.on('message', (topic, message) => {
+        //console.log(`Received message on topic ${topic}:`, message.toString());
         try {
             const eventType = topic.split('/')[5];
             const deviceEUI = topic.split('/')[3];

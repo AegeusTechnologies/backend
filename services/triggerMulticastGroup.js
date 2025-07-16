@@ -61,7 +61,7 @@ async function triggermulticastGroup(req, res) {
                         try {
                             const downlinkResponse = await apiClient.post(`/api/devices/${device.devEui}/queue`, {
                                 queueItem: {
-                                    data: data.trim(), // Ensure no extra spaces
+                                    data: data.trim(),
                                     fCnt: 0,
                                     fPort: 1,
                                     confirmed: true,

@@ -15,6 +15,9 @@ const event = require('./routes/mqttEventsRoutes');
 const { mqttEvents } = require('./mqttConnection/mqttEvents');
 const robotError = require('./routes/robotErrorRoutes');
 const statusRouter = require('./routes/statusRobot');
+//const { availability } = require('./config/prismaConfig');
+const { availabilityData } = require('./services/AvailabilityData');
+const availabilityRoutes = require('./routes/Availability');
 require('dotenv').config(); 
 const app = express();
 
@@ -24,21 +27,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
+// Initialize MQTT clients and event handlers
+//setupMQTTClient2();
+//setupMQTTClient3();
+mqttEvents(); // Initialize MQTT event handlers
 
-setupMQTTClient2();
-setupMQTTClient3();
-mqttEvents(); // this for the events data
-//app.use('/api', reportRoutes);
+// Schedule periodic availability data update every 1 minute
+//setInterval(availabilityData, 60 * 1000);
 
 app.use('/api',Reportrouter);
 app.use('/api',allReportRouter);
 app.use('/api',deviceRouter);
 app.use('/api',TriggerAll);
-//app.use('/api',weatherRouter);
+app.use('/api',weatherRouter);
 app.use('/api',thresoldRouter);
 app.use('/api',event);
 app.use('/api',robotError)
 app.use('/api',statusRouter);
+app.use('/api',availabilityRoutes);
 
 // API configuration
 const APPLICATION_ID = process.env.APPLICATION_ID;

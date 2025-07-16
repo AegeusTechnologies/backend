@@ -2,6 +2,7 @@ const mqtt = require('mqtt');
 const storeDataToDatabase = require('./prismaData');
 const storeDataToRedis = require('./redisData');
 const storeStatusData = require('./statusRobotRedis');
+const {converToCh, FormatetoCH}  = require('../services/converToCh');
 
 
 
@@ -17,8 +18,6 @@ const options = {
 }
 
 async function setupMQTTClient2() {
-
-   // console.log({" iam here i  mqtt": mqttBrokerURL});
     const client = mqtt.connect(mqttBrokerURL, options);
 
     client.on('connect', async () => {
@@ -31,7 +30,7 @@ async function setupMQTTClient2() {
     client.on('close', () => handleClose());
 
     try {
-        const topic = `application/${process.env.application_id}/device/+/event/up`;
+        const topic = `application/${process.env.APPLICATION_ID}/device/+/event/up`;
         client.subscribe(topic, async (error) => {
             if (error) {
                 console.log("Error on subscribing to the topic:", error);
@@ -48,16 +47,27 @@ async function setupMQTTClient2() {
 }
 
 async function handleMessage(_topic, message) {
-     const data = JSON.parse(message.toString());
-     console.log("Received message:", data);
+     const data = JSON.parse(message.toString());  // here we need to separate data based on the payload  
+     //console.log("Received message:", data);
+        console.log("this is to check the lenght of the data",Object.keys(data.object).length);
     try {
-        await Promise.all([
-            storeDataToDatabase(data),
-            storeDataToRedis(data),
-            storeStatusData(data),
-            
-            
-        ]);
+        if(data.object.CH1){
+            console.log("Data conatains CH feild");
+            await Promise.all([
+                storeDataToDatabase(data),
+                storeDataToRedis(data),
+                storeStatusData(data),
+            ]);
+        } else if (Object.keys(data.object).length >19 && data.object.CH1){
+            await  Promise.all([
+                FormatetoCH(data)
+            ])
+        }else {
+            console.log("Data does not contain CH feild");
+            await Promise.all([
+                converToCh(data)
+            ])
+        }
 
         const timestamp = Date.now();
         const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
