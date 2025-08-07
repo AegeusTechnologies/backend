@@ -2,6 +2,8 @@ const axios = require('axios');
 const moment = require('moment-timezone');
 const schedule = require('node-schedule');
 const {v4: uuidv4} = require('uuid');
+const { delay } = require('../config/delay');
+require('dotenv').config(); 
 
 const errors = [];
 const missing = new Map();
@@ -58,10 +60,11 @@ async function triggermulticastGroup(req, res) {
                     
                     // Wait for all device operations to complete
                     await Promise.all(devices.map(async (device) => {
+                        await delay(100);   // adding the delay for every next request
                         try {
                             const downlinkResponse = await apiClient.post(`/api/devices/${device.devEui}/queue`, {
                                 queueItem: {
-                                    data: data.trim(), // Ensure no extra spaces
+                                    data: data.trim(), 
                                     fCnt: 0,
                                     fPort: 1,
                                     confirmed: true,
@@ -191,7 +194,7 @@ async function Scheduler(req, res) {
                                     console.log(`[${taskId}] Sending downlink to device: ${device.devEui}`);
                                     await apiClient.post(`/api/devices/${device.devEui}/queue`, {
                                         queueItem: {
-                                            data: "Ag==",
+                                            data: "qAABAgA",
                                             fCnt: 0,
                                             fPort: 1,
                                             confirmed: true,

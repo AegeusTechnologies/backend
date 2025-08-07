@@ -3,8 +3,8 @@ const { storeWeatherThresoldData, updateThresoldWeatherData, getWeatherThresoldD
 const thresoldRouter = express.Router();
 
 
-thresoldRouter.post('/weather-thresold', storeWeatherThresoldData);
-thresoldRouter.put('/weather-thresold', updateThresoldWeatherData);
+//thresoldRouter.post('/weather-thresold', storeWeatherThresoldData);
+thresoldRouter.put('/weather-thresolds', updateThresoldWeatherData);
 thresoldRouter.get('/weather-thresold',getWeatherThresoldData)
 
 

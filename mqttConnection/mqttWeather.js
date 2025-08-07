@@ -1,5 +1,5 @@
 const mqtt = require('mqtt');
-const getWeatherData=require('../services/weatherConfig')
+const {getWeatherData, storeWeatherData}=require('../services/weatherConfig')
 
 
 
@@ -15,7 +15,7 @@ const options = {
 
 async function setupMQTTClient3() {
 
-    //console.log({" iam here i  mqtt": mqttBrokerURL});
+   
     const client = mqtt.connect(mqttBrokerURL, options);
 
     client.on('connect', async () => {
@@ -47,7 +47,8 @@ async function setupMQTTClient3() {
 async function handleMessage(_topic, message) {
     try {
         const data = JSON.parse(message.toString());
-        storeWeatherData(data)
+        console.log("Weather data received from the MQTT broker:", data.object);
+        storeWeatherData(data.object)
     
          
     } catch (error) {

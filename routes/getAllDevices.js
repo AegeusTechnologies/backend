@@ -2,6 +2,7 @@
 const { default: axios } = require("axios");
 const express = require('express');
 const deviceRouter = express.Router();
+require('dotenv').config(); 
 
 // Create axios instance with base URL and headers
 const apiClient = axios.create({

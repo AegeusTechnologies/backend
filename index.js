@@ -15,6 +15,7 @@ const event = require('./routes/mqttEventsRoutes');
 const { mqttEvents } = require('./mqttConnection/mqttEvents');
 const robotError = require('./routes/robotErrorRoutes');
 const statusRouter = require('./routes/statusRobot');
+const BatteryRouter = require('./routes/robotbatter');
 require('dotenv').config(); 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/api',thresoldRouter);
 app.use('/api',event);
 app.use('/api',robotError)
 app.use('/api',statusRouter);
+app.use('/api',BatteryRouter)
 
 // API configuration
 const APPLICATION_ID = process.env.APPLICATION_ID;
@@ -199,7 +201,7 @@ app.post('/api/multicast-groups/:groupId/queue', async (req, res) => {
 app.get('/api/gateway', async (req, res) => {
     try {
         // Fetch gateway details
-        const gatewayResponse = await apiClient.get(`/api/gateways/${GATEWAYS_ID}`);
+        const gatewayResponse = await apiClient.get(`/api/gateways/${process.env.GATEWAYS_ID}`);
         const gatewayData = gatewayResponse.data;
 
         // Extract latitude and longitude

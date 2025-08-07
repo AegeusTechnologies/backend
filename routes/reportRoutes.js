@@ -6,13 +6,13 @@ allReportRouter.post('/report/day', async (req, res) => {
     try {
         // Get start of today
         const today = new Date()
-        today.setHours(5, 30, 0, 0)  // Set to 5:30 AM UTC (11:00 AM IST)
+        today.setHours(5, 30, 0, 0)  
         
         const tomorrow = new Date(today)
         tomorrow.setDate(tomorrow.getDate() + 1)
 
         const DailyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name'],
+            by: ['device_id', 'device_name','block'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true // Added battery stats
@@ -25,8 +25,9 @@ allReportRouter.post('/report/day', async (req, res) => {
             }
         })
 
-        const processedReports = DailyReport.map(robot => ({
+        const processedReports = DailyReport.map(async(robot )=> ({
             robotId: robot.device_id,
+            block: robot.block,
             robotName: robot.device_name,
             totalPanelsCleaned: robot._sum.panels_cleaned || 0,
         
@@ -41,6 +42,9 @@ allReportRouter.post('/report/day', async (req, res) => {
                 ? ((robot.totalPanelsCleaned / totalPanelsCleaned) * 100).toFixed(2) + "%" 
                 : "0%"
         }))
+        // Sort robots by name
+        finalReport.sort((a, b) => a.robotName.localeCompare(b.robotName));
+
 
         res.json({
             success: true,
@@ -72,7 +76,7 @@ allReportRouter.post('/report/monthly', async (req, res) => {
         endOfMonth.setMonth(endOfMonth.getMonth() + 1)
 
         const monthlyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name'],
+            by: ['device_id', 'device_name','block'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true
@@ -87,6 +91,7 @@ allReportRouter.post('/report/monthly', async (req, res) => {
 
         const processedReports = monthlyReport.map(robot => ({
             robotId: robot.device_id,
+            block: robot.block,
             robotName: robot.device_name,
             totalPanelsCleaned: robot._sum.panels_cleaned || 0,
         }))
@@ -100,6 +105,8 @@ allReportRouter.post('/report/monthly', async (req, res) => {
                 ? ((robot.totalPanelsCleaned / totalPanelsCleaned) * 100).toFixed(2) + "%" 
                 : "0%"
         }))
+
+        finalReport.sort((a, b) => a.robotName.localeCompare(b.robotName));
 
         res.json({
             success: true,
@@ -131,7 +138,7 @@ allReportRouter.post('/report/yearly', async (req, res) => {
         endOfYear.setFullYear(endOfYear.getFullYear() + 1)
 
         const yearlyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name'],
+            by: ['device_id', 'device_name','block'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true
@@ -146,6 +153,7 @@ allReportRouter.post('/report/yearly', async (req, res) => {
 
         const processedReports = yearlyReport.map(robot => ({
             robotId: robot.device_id,
+            block: robot.block,
             robotName: robot.device_name,
             totalPanelsCleaned: robot._sum.panels_cleaned || 0,
         }))
@@ -159,6 +167,9 @@ allReportRouter.post('/report/yearly', async (req, res) => {
                 ? ((robot.totalPanelsCleaned / totalPanelsCleaned) * 100).toFixed(2) + "%" 
                 : "0%"
         }))
+
+        // Sort robots by name
+        finalReport.sort((a, b) => a.robotName.localeCompare(b.robotName));
 
         res.json({
             success: true,

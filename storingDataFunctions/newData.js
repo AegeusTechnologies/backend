@@ -1,67 +1,86 @@
 const prisma = require("../config/prismaConfig");
+require('dotenv').config();
 
-async function newData(data) {
+/**
+ * Calculates how many panels were cleaned based on the odometer value.
+ * @param {number} odometerValue 
+ * @returns {number}
+ */
+function calculatePanelsCleaned(odometerValue) {
+    const gap = parseFloat(process.env.PANNELS_GAP);
+    const width = parseFloat(process.env.PANNELWIDTH);
+
+    if (isNaN(gap) || isNaN(width)) {
+        throw new Error("Invalid environment variables: PANNELS_GAP or PANNELWIDTH");
+    }
+
+    return Math.floor(odometerValue / (gap + width));
+}
+
+/**
+ * Store new device data
+ */
+async function newData(data, block) {
     try {
-       
-        const solarPanelCleaned = parseFloat(data.object.CH10) * 
-            (Number(process.env.MULTIPLICATION_FACTOR) - Number(process.env.PANNELS_GAP));
+        block = block ?? "Unknown Block";
+        const rawOdometer = data.object.CH10;
+        const panelsCleaned = calculatePanelsCleaned(rawOdometer);
 
-        if (solarPanelCleaned < 0) {
-            return
+        if (panelsCleaned < 10) {
+            return { success: false, message: "Panels cleaned < 10, skipping storage" };
         }
 
         const result = await prisma.robot_data.create({
             data: {
                 device_id: data.deviceInfo.devEui,
+                block,
                 device_name: data.deviceInfo.deviceName,
-                panels_cleaned: solarPanelCleaned,
-                raw_odometer_value: data.object.CH10,
+                panels_cleaned: panelsCleaned,
+                raw_odometer_value: rawOdometer,
                 battery_discharge_cycle: data.object.CH6,
             }
         });
 
-        return {
-            success: true,
-            message: "Data stored successfully",
-            data: result
-        };
+        return { success: true, message: "Data stored successfully", data: result };
     } catch (error) {
-        console.error("Error in storing data to database:", {
+        console.error("Error in newData:", {
             message: error.message,
             stack: error.stack,
             data: JSON.stringify(data)
         });
-        throw error; 
+        throw error;
     }
 }
 
-
-async function odometerIfReset(data, previousOdometerValue, previousPannelsCleaned) {
+/**
+ * Handle odometer reset scenario
+ */
+async function odometerIfReset(data, previousOdometerValue, block) {
     try {
-        const totalOdometerValue = data.object.CH10 + previousOdometerValue;
-        const solarPanelCleaned = (totalOdometerValue * 
-            (Number(process.env.MULTIPLICATION_FACTOR) - Number(process.env.PANNELS_GAP))) - 
-            previousPannelsCleaned;
+        block = block ?? "Unknown Block";
+        const rawOdometer = data.object.CH10;
+        const totalOdometerValue = rawOdometer + previousOdometerValue;
 
-        if (solarPanelCleaned <= 0) {
-            throw new Error("Calculated panels cleaned value is not valid");
+        const totalPanelsCleaned = calculatePanelsCleaned(totalOdometerValue);
+        const prevPanelsCleaned = calculatePanelsCleaned(previousOdometerValue);
+        const newPanelsCleaned = totalPanelsCleaned - prevPanelsCleaned;
+
+        if (newPanelsCleaned <= 10) {
+            return { success: false, message: "No new panels cleaned after odometer reset, skipping storage" };
         }
 
         const result = await prisma.robot_data.create({
             data: {
                 device_id: data.deviceInfo.devEui,
+                block,
                 device_name: data.deviceInfo.deviceName,
-                panels_cleaned: solarPanelCleaned,
+                panels_cleaned: newPanelsCleaned,
                 raw_odometer_value: totalOdometerValue,
                 battery_discharge_cycle: data.object.CH6
             }
         });
 
-        return {
-            success: true,
-            message: "Data stored after odometer reset",
-            data: result
-        };
+        return { success: true, message: "Data stored after odometer reset", data: result };
     } catch (error) {
         console.error("Error in odometerIfReset:", {
             message: error.message,
@@ -70,34 +89,41 @@ async function odometerIfReset(data, previousOdometerValue, previousPannelsClean
         throw error;
     }
 }
-async function odometerIfNotReset(data, previousPannelsCleaned){
+
+/**
+ * Handle normal odometer increment scenario
+ */
+async function odometerIfNotReset(data, previousOdometer, block) {
     try {
-        const solarPanelCleaned = (Number(data.object.CH10) * (parseFloat(process.env.MULTIPLICATION_FACTOR) - parseFloat(process.env.PANNELS_GAP))) - previousPannelsCleaned;
-        if(solarPanelCleaned <= 0){
-            throw new Error("No new panels cleaned data")
+        block = block ?? "Unknown Block";
+        const rawOdometer = data.object.CH10;
+        const newOdometerDistance = rawOdometer - previousOdometer;
+
+        const newPanelsCleaned = calculatePanelsCleaned(newOdometerDistance);
+
+        if (newPanelsCleaned <= 10) {
+            return { success: false, message: "No new panels cleaned since last update" };
         }
-          
-        const result = await prisma.robot_data.create({  
-            data:{
+
+        const result = await prisma.robot_data.create({
+            data: {
                 device_id: data.deviceInfo.devEui,
                 device_name: data.deviceInfo.deviceName,
-                panels_cleaned: solarPanelCleaned,
-                raw_odometer_value:(data.object.CH10),  
+                block,
+                panels_cleaned: newPanelsCleaned,
+                raw_odometer_value: rawOdometer,
                 battery_discharge_cycle: data.object.CH6
             }
         });
-        
-        return {  
-            success: true,
-            message: "Data stored - odometer advanced",
-            data: result
-        };
+
+        return { success: true, message: "Data stored successfully", data: result };
     } catch (error) {
+        console.error("Error in odometerIfNotReset:", {
+            message: error.message,
+            stack: error.stack
+        });
         throw error;
     }
 }
 
-
-module.exports={ newData, odometerIfReset , odometerIfNotReset }
-
-
+module.exports = { newData, odometerIfReset, odometerIfNotReset };

@@ -1,9 +1,9 @@
 const mqtt = require('mqtt');
 const storeDataToDatabase = require('./prismaData');
 const storeDataToRedis = require('./redisData');
-const { default: axios } = require('axios');
-const { getAllErrorData } = require('../services/errorData');
-const storeStatusData = require('./statusRobotRedis');
+const { storeStatusData } = require('./statusRobotRedis.js');
+require('dotenv').config(); 
+const axios = require('axios');
 
 const mqttBrokerURL = process.env.MQTT_URL;
 const options = {
@@ -30,7 +30,7 @@ async function setupMQTTClient2() {
     client.on('close', () => handleClose());
 
     try {
-        const topic = `application/${process.env.application_id}/device/+/event/up`;
+        const topic = `application/${process.env.APPLICATION_ID}/device/+/event/up`;
         client.subscribe(topic, async (error) => {
             if (error) {
                 console.log("Error on subscribing to the topic:", error);
@@ -49,10 +49,11 @@ async function setupMQTTClient2() {
 async function handleMessage(_topic, message) {
     try {
         const data = JSON.parse(message.toString());
-        console.log("Message received from the MQTT broker:", data);
+       // console.log("Message received from the MQTT broker:", data);
+        await storeStatusData(data);   // first update the status in map
         await storeDataToDatabase(data);
-        await storeDataToRedis(data);
-        await storeStatusData(data)      // await getAllErrorData(data.deviceInfo.devEui,data.deviceInfo.deviceName,data.object.CH7);
+        await storeDataToRedis(data); // first store the data in redis
+        
 
         const timestamp = Date.now();
         const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
@@ -70,27 +71,27 @@ async function handleMessage(_topic, message) {
 
         console.log("Payload to be sent to AWS:", payload);
 
-        // try {
-        //     const response = await axios.post(process.env.AWS_ENDPOINT_URL, payload, {
-        //         headers: {
-        //             'Content-Type': 'application/json'
-        //         },
-        //         timeout: 5000 
-        //     });
+        try {
+            const response = await axios.post(process.env.AWS_ENDPOINT_URL, payload, {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                timeout: 5000 
+            });
             
-        //     console.log("Data sent to AWS successfully:", response.data);
-        //     return data;
-        // } catch (axiosError) {
-        //     console.error("AWS API Error:", {
-        //         status: axiosError.response?.status,
-        //         message: axiosError.message,
-        //         url: process.env.AWS_ENDPOINT_URL,
-        //         data: axiosError.response?.data
-        //     });
+            console.log("Data sent to AWS successfully:", response.data);
+            return data;
+        } catch (axiosError) {
+            console.error("AWS API Error:", {
+                status: axiosError.response?.status,
+                message: axiosError.message,
+                url: process.env.AWS_ENDPOINT_URL,
+                data: axiosError.response?.data
+            });
             
-        //     // You might want to store failed requests for retry
-        //     throw new Error(`AWS API Error: ${axiosError.message}`);
-        // }
+            // You might want to store failed requests for retry
+            throw new Error(`AWS API Error: ${axiosError.message}`);
+        }
     } catch (error) {
         console.error("Message handling error:", error);
         throw error;

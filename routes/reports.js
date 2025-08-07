@@ -25,7 +25,7 @@ if (end < start) {
 }
 
         const robotReports = await  prisma.robot_data.groupBy({
-            by:['device_id','device_name'],
+            by:['device_id','device_name','block'],
             _sum:{
                 panels_cleaned:true
             },
@@ -40,6 +40,7 @@ if (end < start) {
 
         const processedReports= robotReports.map(robot =>({
             robotId:robot.device_id,
+            block:robot.block,
             robotName:robot.device_name,
             totalPanelsCleaned:robot._sum.panels_cleaned || 0
 
@@ -52,6 +53,9 @@ if (end < start) {
                 ...robot,
                 contributionPercentage: totalPanelsCleaned > 0 ? ((robot.totalPanelsCleaned / totalPanelsCleaned) * 100).toFixed(2) + '%': '0%'
             }));
+
+            // Sort robots by name
+            finalReport.sort((a, b) => a.robotName.localeCompare(b.robotName));
 
             res.json({
                 success: true,

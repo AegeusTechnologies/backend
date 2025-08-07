@@ -3,8 +3,9 @@ const { getWeatherData } = require('../services/weatherConfig');
 
 const weatherRouter = express.Router();
 
+weatherRouter.get('/weatherData', async (req, res) => {
+    const result = await getWeatherData();
+    res.status(result.success ? 200 : 500).json(result);
+});
 
-weatherRouter.get('/weatherData',getWeatherData)
-
-
-module.exports = {weatherRouter}
+module.exports = { weatherRouter };

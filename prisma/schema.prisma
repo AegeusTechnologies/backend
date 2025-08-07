@@ -16,6 +16,7 @@ datasource db {
 model Robot_data {
   id                      Int     @id @default(autoincrement())
   device_id               String
+  block                   String?
   device_name             String
   panels_cleaned          Float
   raw_odometer_value      Int
@@ -24,11 +25,24 @@ model Robot_data {
 }
 
 model ThresoldWeatherData {
-  id   Int @id @default(autoincrement())
-  windSpeed Float 
-  windDirection String
-  temperature Float
-  humidity Float
-  rain_gauge Float
-  createdAt              DateTime @default(now())
+  id                   Int     @id @default(autoincrement())
+  rain_gauge           Float?
+  wind_speed           Float?
+  wind_speed_level     Float?
+  wind_direction       String?
+  wind_direction_angle Float?
+  createdAt            DateTime @default(now())
+}
+
+model Availability{
+ id Int @id @default(autoincrement())
+ // String @unique
+ totalRobot Int 
+ ActiveRunRobot Int
+ ActiveIdleRobot Int
+ //TotalRunningLength Int
+ RobotActivePercentage Float
+ createdAt DateTime @default(now())
+ updateAt DateTime @updatedAt
+
 }

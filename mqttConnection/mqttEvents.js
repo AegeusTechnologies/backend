@@ -1,14 +1,15 @@
 const mqtt = require('mqtt');
+require('dotenv').config(); 
 
 const applicationId = process.env.APPLICATION_ID;
-const mqttBroker = process.env.MQTT_BROKER_URL || 'mqtt://103.161.75.85:1885'; // Default value
+const mqttBroker = process.env.MQTT_BROKER_URL 
 const topics = [
-    `application/${applicationId}/device/+/event/txack`,
+   // `application/${applicationId}/device/+/event/txack`,
     `application/${applicationId}/device/+/event/ack`
 ];
 
 let messageHistory = [];
-const messageHistorySize = 100;
+const messageHistorySize = 200;
 
 async function mqttEvents() {
     if (!applicationId) {

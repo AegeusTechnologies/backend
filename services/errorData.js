@@ -10,12 +10,12 @@ const errorMap = new Map();
  */
 async function getAllErrorData(devEui,deviceName, errorMessage) {
     try {
-        if (!devEui || !errorMessage) {
+        if (!devEui) {
             throw new Error('DevEUI and error message are required');
         }
 
         const key = devEui;
-        const date = new Date().toLocaleDateString(); // This will give format like "1/23/2024"
+        const date = new Date().toLocaleDateString(); 
         
         // Store in Map with device ID as key and error details as value
         errorMap.set(key, {
