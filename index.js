@@ -16,6 +16,8 @@ const { mqttEvents } = require('./mqttConnection/mqttEvents');
 const robotError = require('./routes/robotErrorRoutes');
 const statusRouter = require('./routes/statusRobot');
 const BatteryRouter = require('./routes/robotbatter');
+//const getRobotStatuses  = require('./services/activeRobot.js');
+const Robotcount = require('./routes/activeCount');
 require('dotenv').config(); 
 const app = express();
 
@@ -41,10 +43,15 @@ app.use('/api',event);
 app.use('/api',robotError)
 app.use('/api',statusRouter);
 app.use('/api',BatteryRouter)
+app.use('/api',Robotcount);
+
 
 // API configuration
 const APPLICATION_ID = process.env.APPLICATION_ID;
 const GATEWAYS_ID = process.env.GATEWAYS_ID;
+
+
+//setInterval(getRobotStatu, 1000 * 60 * 5); // Check active robots every 5 minutes
 
 // Store device data in memory
 

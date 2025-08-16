@@ -21,6 +21,8 @@ model Robot_data {
   panels_cleaned          Float
   raw_odometer_value      Int
   battery_discharge_cycle Float
+  ManuallCount            Int?
+  AutoCount               Int?
   createdAt              DateTime @default(now())
 }
 
@@ -46,3 +48,17 @@ model Availability{
  updateAt DateTime @updatedAt
 
 }
+
+
+model RunningData{
+  id Int @id @default(autoincrement())
+  device_id   String
+  device_name String
+  block String?
+  autoCount Int
+  manualCount Int
+  createdAt DateTime @default(now())
+  updateAt DateTime @updatedAt
+}
+
+

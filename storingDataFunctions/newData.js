@@ -38,6 +38,8 @@ async function newData(data, block) {
                 panels_cleaned: panelsCleaned,
                 raw_odometer_value: rawOdometer,
                 battery_discharge_cycle: data.object.CH6,
+                AutoCount: parseInt(data.object.CH15),
+                ManuallCount: parseInt(data.object.CH16),
             }
         });
 
@@ -76,7 +78,9 @@ async function odometerIfReset(data, previousOdometerValue, block) {
                 device_name: data.deviceInfo.deviceName,
                 panels_cleaned: newPanelsCleaned,
                 raw_odometer_value: totalOdometerValue,
-                battery_discharge_cycle: data.object.CH6
+                battery_discharge_cycle: data.object.CH6,
+                AutoCount: parseInt(data.object.CH15),
+                ManuallCount: parseInt(data.object.CH16),
             }
         });
 
@@ -112,7 +116,9 @@ async function odometerIfNotReset(data, previousOdometer, block) {
                 block,
                 panels_cleaned: newPanelsCleaned,
                 raw_odometer_value: rawOdometer,
-                battery_discharge_cycle: data.object.CH6
+                battery_discharge_cycle: data.object.CH6,
+                AutoCount: parseInt(data.object.CH15),
+                ManuallCount:parseInt(data.object.CH16),
             }
         });
 
