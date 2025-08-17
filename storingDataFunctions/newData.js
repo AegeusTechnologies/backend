@@ -22,11 +22,11 @@ function calculatePanelsCleaned(odometerValue) {
  */
 async function newData(data, block) {
     try {
-        block = block ?? "Unknown Block";
+        block = block || "Unknown Block";
         const rawOdometer = data.object.CH10;
         const panelsCleaned = calculatePanelsCleaned(rawOdometer);
 
-        if (panelsCleaned < 10) {
+        if (panelsCleaned < 0) {
             return { success: false, message: "Panels cleaned < 10, skipping storage" };
         }
 
@@ -59,7 +59,7 @@ async function newData(data, block) {
  */
 async function odometerIfReset(data, previousOdometerValue, block) {
     try {
-        block = block ?? "Unknown Block";
+        block = block;
         const rawOdometer = data.object.CH10;
         const totalOdometerValue = rawOdometer + previousOdometerValue;
 
@@ -67,7 +67,7 @@ async function odometerIfReset(data, previousOdometerValue, block) {
         const prevPanelsCleaned = calculatePanelsCleaned(previousOdometerValue);
         const newPanelsCleaned = totalPanelsCleaned - prevPanelsCleaned;
 
-        if (newPanelsCleaned <= 10) {
+        if (newPanelsCleaned <= 0) {
             return { success: false, message: "No new panels cleaned after odometer reset, skipping storage" };
         }
 
@@ -99,13 +99,13 @@ async function odometerIfReset(data, previousOdometerValue, block) {
  */
 async function odometerIfNotReset(data, previousOdometer, block) {
     try {
-        block = block ?? "Unknown Block";
+        block = block;
         const rawOdometer = data.object.CH10;
         const newOdometerDistance = rawOdometer - previousOdometer;
 
         const newPanelsCleaned = calculatePanelsCleaned(newOdometerDistance);
 
-        if (newPanelsCleaned <= 10) {
+        if (newPanelsCleaned < 0) {
             return { success: false, message: "No new panels cleaned since last update" };
         }
 

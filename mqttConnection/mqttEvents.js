@@ -67,6 +67,7 @@ async function mqttEvents() {
             eventData.acknowledged = event.acknowledged;
 
             if (!eventData.acknowledged) {
+                console.log(`ACK not received for device ${deviceEUI}, retrying...`);
                 retryCounter[deviceEUI] = retryCounter[deviceEUI] || 0;
 
                 if (retryCounter[deviceEUI] < MAX_RETRIES) {

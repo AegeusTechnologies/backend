@@ -14,7 +14,7 @@ async function createNewRunningData(data) {
                 device_name: data.deviceInfo.deviceName,
                 autoCount: AutoCount,
                 manualCount: manuallCount,
-                block: block ? block.block : "Unknown Block",
+                block: String(block ? block.block : "Unknown Block"),
             }
         });
 
@@ -61,9 +61,9 @@ async function updatedRunningData(data, autoCount, manualCount) {
         const updateData = await prisma.runningData.update({
             where: { id: existing.id },
             data: {
-                autoCount: existing.autoCount + autoCount,
-                manualCount: existing.manualCount + manualCount,
-                updatedAt: new Date()
+                autoCount: autoCount,
+                manualCount: manualCount,
+                updateAt: new Date()
             }
         });
 

@@ -6,12 +6,10 @@ setInterval(() =>{
 
 async function robotBattery(devEui ,battery_percent) {
 
-    try {
-
-        if(!devEui || !battery_percent) {
-            throw new Error("Invalid parameters: devEui and battery_percent are required");
+    try{
+     if (!devEui) {
+            throw new Error("Device EUI and battery percent are required");
         }
-
         RobotsBattery.set(devEui, battery_percent);
         
     } catch (error) {

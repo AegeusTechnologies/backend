@@ -12,10 +12,10 @@ allReportRouter.post('/report/day', async (req, res) => {
         tomorrow.setDate(tomorrow.getDate() + 1)
 
         const DailyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name','block'],
+            by: ['device_id', 'device_name'],
             _sum: {
                 panels_cleaned: true,
-                battery_discharge_cycle: true // Added battery stats
+                battery_discharge_cycle: true
             },
             where: {
                 createdAt: {
@@ -24,14 +24,26 @@ allReportRouter.post('/report/day', async (req, res) => {
                 }
             }
         })
-
-        const processedReports = DailyReport.map(async(robot )=> ({
-            robotId: robot.device_id,
-            block: robot.block,
-            robotName: robot.device_name,
-            totalPanelsCleaned: robot._sum.panels_cleaned || 0,
+        const processedReports = await Promise.all(DailyReport.map(async (robot) => {
+            const block = await prisma.robot_data.findFirst({
+                where: {
+                    device_id: robot.device_id
+                },
+                select: {
+                    block: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
+            return {
+                robotId: robot.device_id,
+                block: block.block,
+                robotName: robot.device_name,
+                totalPanelsCleaned: robot._sum.panels_cleaned || 0,
+            };
+        }));
         
-        }))
 
         const totalPanelsCleaned = processedReports.reduce((sum, robot) => 
             sum + robot.totalPanelsCleaned, 0)
@@ -76,7 +88,7 @@ allReportRouter.post('/report/monthly', async (req, res) => {
         endOfMonth.setMonth(endOfMonth.getMonth() + 1)
 
         const monthlyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name','block'],
+            by: ['device_id', 'device_name'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true
@@ -89,12 +101,26 @@ allReportRouter.post('/report/monthly', async (req, res) => {
             }
         })
 
-        const processedReports = monthlyReport.map(robot => ({
-            robotId: robot.device_id,
-            block: robot.block,
-            robotName: robot.device_name,
-            totalPanelsCleaned: robot._sum.panels_cleaned || 0,
-        }))
+        const processedReports = await Promise.all(monthlyReport.map(async (robot) => {
+            const block = await prisma.robot_data.findFirst({
+                where: {
+                    device_id: robot.device_id
+                },
+                select: {
+                    block: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
+
+            return {
+                robotId: robot.device_id,
+                block: block.block,
+                robotName: robot.device_name,
+                totalPanelsCleaned: robot._sum.panels_cleaned || 0,
+            };
+        }));
 
         const totalPanelsCleaned = processedReports.reduce((sum, robot) => 
             sum + robot.totalPanelsCleaned, 0)
@@ -138,7 +164,7 @@ allReportRouter.post('/report/yearly', async (req, res) => {
         endOfYear.setFullYear(endOfYear.getFullYear() + 1)
 
         const yearlyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name','block'],
+            by: ['device_id', 'device_name'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true
@@ -151,12 +177,25 @@ allReportRouter.post('/report/yearly', async (req, res) => {
             }
         })
 
-        const processedReports = yearlyReport.map(robot => ({
-            robotId: robot.device_id,
-            block: robot.block,
-            robotName: robot.device_name,
-            totalPanelsCleaned: robot._sum.panels_cleaned || 0,
-        }))
+        const processedReports = await Promise.all(yearlyReport.map(async (robot) => {
+            const block = await prisma.robot_data.findFirst({
+                where: {
+                    device_id: robot.device_id
+                },
+                select: {
+                    block: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            });
+            return {
+                robotId: robot.device_id,
+                block: block.block,
+                robotName: robot.device_name,
+                totalPanelsCleaned: robot._sum.panels_cleaned || 0,
+            };
+        }));
 
         const totalPanelsCleaned = processedReports.reduce((sum, robot) => 
             sum + robot.totalPanelsCleaned, 0)

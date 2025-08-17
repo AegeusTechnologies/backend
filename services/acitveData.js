@@ -29,15 +29,16 @@ async function activelyRunning(data) {
             return { success: true, message: "New running data created successfully" };
         }
 
-        if (result.autoCount === AutoCount && result.manualCount === manuallCount) {
-            console.log("No change in running data for device:", data.deviceInfo.name);
-            return { success: false, message: "No change in running data" };
-        }
 
         const newAutoCount = Math.max(0, AutoCount - result.autoCount);
         const newManualCount = Math.max(0, manuallCount - result.manualCount);
 
-        console.log(`Device ${data.deviceInfo.name}: AutoCount +${newAutoCount}, ManualCount +${newManualCount}`);
+        if (newAutoCount < 0 && newManualCount < 0) {
+            console.log("No new counts to update for device:", data.deviceInfo.name);
+            return { success: false, message: "No new counts to update" };
+        }
+
+        console.log(`Device ${String(data.deviceInfo.name)}: AutoCount +${newAutoCount}, ManualCount +${newManualCount}`);
 
         const runningData = await updatedRunningData(data, newAutoCount, newManualCount);
         return { success: true, message: "Running data updated successfully", data: runningData };

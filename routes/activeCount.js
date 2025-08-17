@@ -53,6 +53,12 @@ Robotcount.post('/activeCount', async (req, res) => {
             },
             orderBy: {
                 createdAt: 'desc'
+            },select:{
+                device_name: true,
+                block: true,
+                autoCount: true,
+                manualCount: true,
+                updateAt: true,
             }
         });
 

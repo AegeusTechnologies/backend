@@ -49,11 +49,12 @@ async function setupMQTTClient2() {
 async function handleMessage(_topic, message) {
     try {
         const data = JSON.parse(message.toString());
-       console.log("Message received from the MQTT broker:", data);
+       //console.log("Message received from the MQTT broker:", data);
         await storeDataToRedis(data); // first store the data in redis
         await storeStatusData(data);   // first update the status in map
-        await activelyRunning(data); // update the actively running robots
         await storeDataToDatabase(data); // store the data in the database
+        await activelyRunning(data); // update the actively running robots
+       
      
         // const timestamp = Date.now();
         // const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;

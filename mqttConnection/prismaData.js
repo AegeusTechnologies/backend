@@ -31,7 +31,7 @@ async function storeDataToDatabase(data) {
         try {
             const block = await apiClient.get(`/api/devices/${data.deviceInfo.devEui}`);
             blockDescription = block?.data?.device?.description ?? "Unknown Block";
-            console.log("Block data fetched successfully:", blockDescription);
+           // console.log("Block data fetched successfully:", blockDescription);
         } catch (error) {
             console.error("Error fetching device block data:", error.message);
             throw new Error(`Error fetching device block data: ${error.message}`);
@@ -47,10 +47,10 @@ async function storeDataToDatabase(data) {
             }
         });
 
-        console.log("=== HISTORY DATA ===");
-        console.log("Previous record from DB:", historyData);
-        console.log("Current incoming odometer:", data.object.CH10);
-        console.log("====================");
+        // console.log("=== HISTORY DATA ===");
+        // console.log("Previous record from DB:", historyData);
+        // console.log("Current incoming odometer:", data.object.CH10);
+        // console.log("====================");
 
         // No previous record — treat as new data
         if (!historyData) {
