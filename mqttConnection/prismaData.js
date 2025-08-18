@@ -30,7 +30,9 @@ async function storeDataToDatabase(data) {
         let blockDescription = "Unknown Block";
         try {
             const block = await apiClient.get(`/api/devices/${data.deviceInfo.devEui}`);
-            blockDescription = block?.data?.device?.description ?? "Unknown Block";
+           // blockDescription = block?.data?.device?.description ?? "Unknown Block";
+            blockDescription = String(block?.data?.device?.description ?? "Unknown Block");
+
            // console.log("Block data fetched successfully:", blockDescription);
         } catch (error) {
             console.error("Error fetching device block data:", error.message);

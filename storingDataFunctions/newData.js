@@ -59,7 +59,6 @@ async function newData(data, block) {
  */
 async function odometerIfReset(data, previousOdometerValue, block) {
     try {
-        block = block;
         const rawOdometer = data.object.CH10;
         const totalOdometerValue = rawOdometer + previousOdometerValue;
 

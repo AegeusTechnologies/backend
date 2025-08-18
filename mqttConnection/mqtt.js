@@ -4,7 +4,7 @@ const storeDataToRedis = require('./redisData');
 const { storeStatusData } = require('./statusRobotRedis.js');
 require('dotenv').config(); 
 const axios = require('axios');
-const {activelyRunning}  = require('../services/acitveData.js');
+const activelyRunning = require('../services/acitveData.js');
 //const { getRobotCount } = require('../services/ActiveRunRobot.js');
 
 const mqttBrokerURL = process.env.MQTT_URL;

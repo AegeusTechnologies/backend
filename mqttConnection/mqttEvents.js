@@ -1,20 +1,22 @@
 const mqtt = require('mqtt');
-const { resendDownlink } = require('../services/resendDownlink');
 const apiClient = require('../config/apiClient');
-require('dotenv').config(); 
+require('dotenv').config();
 
 let retryCounter = {};
+let pendingDownlinks = {};
+
 const MAX_RETRIES = 2;
+const MESSAGE_HISTORY_SIZE = 200;
 
 const applicationId = process.env.APPLICATION_ID;
-const mqttBroker = process.env.MQTT_URL 
+const mqttBroker = process.env.MQTT_URL;
+
 const topics = [
-   // `application/${applicationId}/device/+/event/txack`,
+    `application/${applicationId}/device/+/event/txack`,
     `application/${applicationId}/device/+/event/ack`
 ];
 
 let messageHistory = [];
-const messageHistorySize = 200;
 
 async function mqttEvents() {
     if (!applicationId) {
@@ -47,11 +49,12 @@ async function mqttEvents() {
     });
 
     client.on('message', async (topic, message) => {
-
         console.log(`Received message on topic ${topic}:`, message.toString());
+
         try {
-            const eventType = topic.split('/')[5];
-            const deviceEUI = topic.split('/')[3];
+            const parts = topic.split('/');
+            const deviceEUI = parts[3];
+            const eventType = parts[5];
             const event = JSON.parse(message.toString());
 
             let eventData = {
@@ -60,75 +63,108 @@ async function mqttEvents() {
                 deviceEUI: event.deviceInfo.devEui
             };
 
-        if (eventType === 'txack') {
-            eventData.Gatewayreceived = event.queueItemId;
-            console.log(`TXACK event for device ${deviceEUI}:`, eventData);
-        } else if (eventType === 'ack') {
-            eventData.acknowledged = event.acknowledged;
+            if (eventType === 'txack') {
+                const decoded = event.data
+                    ? Buffer.from(event.data, 'base64').toString('utf-8')
+                    : null;
 
-            if (!eventData.acknowledged) {
-                console.log(`ACK not received for device ${deviceEUI}, retrying...`);
-                retryCounter[deviceEUI] = retryCounter[deviceEUI] || 0;
-
-                if (retryCounter[deviceEUI] < MAX_RETRIES) {
-                    retryCounter[deviceEUI]++;
-                    console.warn(`ACK not received. Retrying (${retryCounter[deviceEUI]}/${MAX_RETRIES}) for device ${deviceEUI}`);
-
-                try {
-                    const { data } = await apiClient.get(`devices/${deviceEUI}/queue`);
-                    
-                    if (data.result && data.result.length > 0) {
-                        const latestItem = data.result[data.result.length - 1];  // last item
-                        const decoded = Buffer.from(latestItem.data, "base64").toString("hex");
-
-                        console.log("Latest downlink:", latestItem);
-                        console.log("Decoded payload (hex):", decoded);
-
-                        await resendDownlink(latestItem.devEui, eventData.robotName, latestItem);
-                    } else {
-                        console.error(`No downlink queue item found for device ${deviceEUI}`);
-                    }
-                } catch (err) {
-                    console.error(`Failed to fetch queue for device ${deviceEUI}:`, err.message);
+                if (decoded) {
+                    pendingDownlinks[deviceEUI] = {
+                        data: decoded,
+                        robotName: event.deviceInfo.deviceName,
+                        timestamp: Date.now()
+                    };
+                    console.log(`TXACK: Saved downlink data for ${deviceEUI}:`, decoded);
                 }
-            } else {
-                console.warn(`Max retries reached for device ${deviceEUI}. No more downlink attempts.`);
+
+                eventData.gatewayReceived = event.queueItemId;
             }
-        } else {
-            if (retryCounter[deviceEUI]) {
-                console.log(`ACK received for device ${deviceEUI}, resetting retry counter.`);
-                delete retryCounter[deviceEUI];
+
+            else if (eventType === 'ack') {
+                const acknowledged = event.acknowledged;
+                eventData.acknowledged = acknowledged;
+
+                if (!acknowledged) {
+                    retryCounter[deviceEUI] = retryCounter[deviceEUI] || 0;
+
+                    if (retryCounter[deviceEUI] < MAX_RETRIES) {
+                        const cached = pendingDownlinks[deviceEUI];
+
+                        if (cached) {
+                            retryCounter[deviceEUI]++;
+                            console.warn(`ACK failed. Retrying (${retryCounter[deviceEUI]}/${MAX_RETRIES}) for ${deviceEUI}`);
+
+                            await resendDownlink(deviceEUI, cached.robotName, cached.data);
+                        } else {
+                            console.error(`No cached downlink to retry for ${deviceEUI}`);
+                        }
+                    } else {
+                        console.warn(`Max retries reached for ${deviceEUI}. No more downlink attempts.`);
+                    }
+                } else {
+                    console.log(`ACK successful for ${deviceEUI}. Clearing cache.`);
+                    delete pendingDownlinks[deviceEUI];
+                    delete retryCounter[deviceEUI];
+                }
+
+                console.log(`ACK event for device ${deviceEUI}:`, eventData);
             }
+
+            else {
+                console.warn('Unknown event type:', eventType);
+                return;
+            }
+
+            messageHistory.push(eventData);
+            if (messageHistory.length > MESSAGE_HISTORY_SIZE) {
+                messageHistory.shift();
+            }
+
+        } catch (error) {
+            console.error('Message processing error:', error);
         }
-
-        console.log(`ACK event for device ${deviceEUI}:`, eventData);
-    } else {
-        console.warn('Unknown event type:', eventType);
-        return;
-    }
-
-    messageHistory.push(eventData);
-    if (messageHistory.length > messageHistorySize) {
-        messageHistory.shift();
-    }
-
-    } catch (error) {
-        console.error('Message processing error:', error);
-    }
-});
+    });
 
     client.on('error', (err) => {
         console.error('MQTT Error:', err);
     });
 
     client.on('close', () => {
-        console.log('Client disconnected');
+        console.log('MQTT client disconnected');
     });
 
     process.on('SIGINT', () => {
         client.end();
         process.exit();
     });
+
+    // Optional: Periodic cleanup of old pending downlinks
+    setInterval(() => {
+        const now = Date.now();
+        const EXPIRY_TIME = 10 * 60 * 1000; // 10 minutes
+        for (const devEui in pendingDownlinks) {
+            if (now - pendingDownlinks[devEui].timestamp > EXPIRY_TIME) {
+                console.log(`Cleaning up expired downlink for ${devEui}`);
+                delete pendingDownlinks[devEui];
+            }
+        }
+    }, 60 * 1000); // run every 1 minute
+}
+
+async function resendDownlink(devEui, robotName, data) {
+    try {
+        const payload = {
+            devEui,
+            confirmed: true,
+            fPort: 10,
+            data: Buffer.from(data, 'utf-8').toString('base64')
+        };
+
+        await apiClient.post('/api/devices/' + devEui + '/queue', payload);
+        console.log(`Resent downlink to ${robotName} (${devEui})`);
+    } catch (error) {
+        console.error(`Failed to resend downlink for ${devEui}:`, error.message);
+    }
 }
 
 async function getAllMessage() {
@@ -136,14 +172,14 @@ async function getAllMessage() {
 }
 
 async function getMessageCount() {
-    return( messageHistory.length)
+    return messageHistory.length;
 }
 
 async function clearMessageHistory() {
     messageHistory = [];
     retryCounter = {};
+    pendingDownlinks = {};
 }
-
 
 module.exports = {
     mqttEvents,
