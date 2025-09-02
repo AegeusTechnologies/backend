@@ -58,5 +58,6 @@ async function getRobotBattery(req,res) {
 
 module.exports= {
     robotBattery,
-    getRobotBattery
+    getRobotBattery,
+    RobotsBattery
 }

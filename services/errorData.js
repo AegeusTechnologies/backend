@@ -14,6 +14,10 @@ async function getAllErrorData(devEui,deviceName, errorMessage) {
             throw new Error('DevEUI and error message are required');
         }
 
+        if(errorMessage === 0 || errorMessage === "0" || errorMessage === "5" || errorMessage === 5 ){
+            return
+        }
+
         const key = devEui;
         const date = new Date().toLocaleDateString(); 
         

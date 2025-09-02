@@ -1,5 +1,7 @@
 const prisma = require("../config/prismaConfig")
 const express = require('express')
+const redisClient = require("../config/redisConfig")
+const { RobotsBattery } = require("../services/robotBattery")
 const allReportRouter = express.Router()
 
 allReportRouter.post('/report/day', async (req, res) => {
@@ -36,9 +38,17 @@ allReportRouter.post('/report/day', async (req, res) => {
                     createdAt: 'desc'
                 }
             });
+
+            //const battery = await redisClient.get(robot.device_id)
+           // console.log("Battery data from Redis this is to get the data from the redif  isso usefull:", battery);
+            const  actualBattery = RobotsBattery.get(robot.device_id);
+            console.log("bateryt data from the redis:", actualBattery);
+            // If battery data is not found, default to 0
+           // const batteryvoltage = battery ? JSON.parse(battery).object.CH5 : 0;
             return {
                 robotId: robot.device_id,
                 block: block.block,
+                battery:actualBattery || 0,
                 robotName: robot.device_name,
                 totalPanelsCleaned: robot._sum.panels_cleaned || 0,
             };
@@ -150,6 +160,104 @@ allReportRouter.post('/report/monthly', async (req, res) => {
         })
     }
 })
+
+allReportRouter.post('/report/monthly-daily', async (req, res) => {
+    try {
+        const { month } = req.body; // Expecting format: '2025-08'
+        if (!month) {
+            return res.status(400).json({ success: false, message: 'Month is required in YYYY-MM format' });
+        }
+
+        const [year, monthIndex] = month.split('-').map(Number);
+        const startOfMonth = new Date(Date.UTC(year, monthIndex - 1, 1, 5, 30)); // IST 11:00 AM
+        const endOfMonth = new Date(Date.UTC(year, monthIndex, 1, 5, 30)); // Next month start
+
+        // const dailyReport = await prisma.robot_data.groupBy({
+        //     by: ['device_id', 'device_name'],
+        //     _sum: {
+        //         panels_cleaned: true
+        //     },
+        //     where: {
+        //         createdAt: {
+        //             gte: startOfMonth,
+        //             lt: endOfMonth
+        //         }
+        //     },
+        //     orderBy: {
+        //         device_name: 'asc'
+        //     }
+        // });
+
+        // Fetch all records grouped by date
+        const rawData = await prisma.robot_data.findMany({
+            where: {
+                createdAt: {
+                    gte: startOfMonth,
+                    lt: endOfMonth
+                }
+            },
+            select: {
+                device_id: true,
+                device_name: true,
+                panels_cleaned: true,
+                createdAt: true
+            }
+        });
+
+        // Process into daily summary
+        const robotMap = {};
+
+        rawData.forEach(record => {
+            const date = record.createdAt.toISOString().split('T')[0]; // Get YYYY-MM-DD
+            const robotId = record.device_id;
+            const robotName = record.device_name;
+
+            if (!robotMap[robotId]) {
+                robotMap[robotId] = {
+                    robotId,
+                    robotName,
+                    dailyCleaning: {}
+                };
+            }
+
+            robotMap[robotId].dailyCleaning[date] = 
+                (robotMap[robotId].dailyCleaning[date] || 0) + (record.panels_cleaned || 0);
+        });
+
+        // Convert map to array and fill missing dates with 0
+        const daysInMonth = new Date(year, monthIndex, 0).getDate(); // e.g., 31 for August
+        const dateKeys = Array.from({ length: daysInMonth }, (_, i) => {
+            const day = String(i + 1).padStart(2, '0');
+            return `${month}-${day}`; // Format: '2025-08-01'
+        });
+
+        const finalReport = Object.values(robotMap).map(robot => {
+            const filledDaily = {};
+            dateKeys.forEach(date => {
+                filledDaily[date] = robot.dailyCleaning[date] || 0;
+            });
+            return {
+                ...robot,
+                dailyCleaning: filledDaily
+            };
+        });
+
+        res.json({
+            success: true,
+            month,
+            days: dateKeys,
+            robots: finalReport
+        });
+
+    } catch (error) {
+        console.error('Error generating daily robot cleaning report:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error generating daily robot cleaning report',
+            error: error.message
+        });
+    }
+});
 
 
 allReportRouter.post('/report/yearly', async (req, res) => {

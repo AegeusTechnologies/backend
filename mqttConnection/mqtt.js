@@ -2,45 +2,45 @@ const mqtt = require('mqtt');
 const storeDataToDatabase = require('./prismaData');
 const storeDataToRedis = require('./redisData');
 const { storeStatusData } = require('./statusRobotRedis.js');
-require('dotenv').config(); 
-const axios = require('axios');
 const activelyRunning = require('../services/acitveData.js');
-//const { getRobotCount } = require('../services/ActiveRunRobot.js');
+const axios = require('axios');
+const moment = require('moment');
+require('dotenv').config();
 
 const mqttBrokerURL = process.env.MQTT_URL;
+
 const options = {
     clientId: `mqttjs_${Math.random().toString(16).slice(2, 10)}`,
     clean: true,
-    keepalive: 60,    
+    keepalive: 60,
     reconnectPeriod: 4000,
     connectTimeout: 30000,
     qos: 1,
-}
+};
 
 async function setupMQTTClient2() {
     const client = mqtt.connect(mqttBrokerURL, options);
 
-    client.on('connect', async () => {
-        console.log('Connected to MQTT broker');
+    client.on('connect', () => {
+        console.log('✅ Connected to MQTT broker');
     });
 
     client.on('message', (topic, message) => handleMessage(topic, message));
     client.on('error', handleError);
-    client.on('reconnect', () => handleReconnect());
-    client.on('close', () => handleClose());
+    client.on('reconnect', handleReconnect);
+    client.on('close', handleClose);
 
     try {
         const topic = `application/${process.env.APPLICATION_ID}/device/+/event/up`;
-        client.subscribe(topic, async (error) => {
+        client.subscribe(topic, (error) => {
             if (error) {
-                console.log("Error on subscribing to the topic:", error);
+                console.error("❌ Error subscribing to topic:", error);
                 throw error;
             }
+            console.log(`✅ Subscribed to topic: ${topic}`);
         });
-        
     } catch (error) {
-        console.log("Error on subscribing to the topic");
-        console.log(error);
+        console.error("❌ Error in MQTT subscription:", error);
     }
 
     return client;
@@ -49,66 +49,99 @@ async function setupMQTTClient2() {
 async function handleMessage(_topic, message) {
     try {
         const data = JSON.parse(message.toString());
-       //console.log("Message received from the MQTT broker:", data);
-        await storeDataToRedis(data); // first store the data in redis
-        await storeStatusData(data);   // first update the status in map
-        await storeDataToDatabase(data); // store the data in the database
-        await activelyRunning(data); // update the actively running robots
-       
-     
-        // const timestamp = Date.now();
-        // const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
-        // const uniqueId = `${timestamp}${random10Digit}`.slice(0, 10);
-        
-        // const payload = {
-        //     "data_id": `AEG5${uniqueId}`,
-        //     "robot_id": `AEG5${data.object.CH1}`,
-        //     "robot_status": data.object.CH2 ? "RUNNING" : "STOPPED",
-        //     "battery_percent": data.object.CH4,
-        //     "fault_code": data.object.CH7, 
-        //     "total_running_length": data.object.CH10,
-        //     "total_panels_cleaned": 2 * data.object.CH10 * (Number(process.env.MULTIPLICATION_FACTOR) - Number(process.env.PANNELS_GAP)),
-        // }
+        // console.log("Message received from the MQTT broker:", data);
 
-      //  console.log("Payload to be sent to AWS:", payload);
+        await storeDataToRedis(data);
+        await storeStatusData(data);
+        await storeDataToDatabase(data);
+        await activelyRunning(data);
 
-//         try {
-//             const response = await axios.post(process.env.AWS_ENDPOINT_URL, payload, {
-//                 headers: {
-//                     'Content-Type': 'application/json'
-//                 },
-//                 timeout: 5000 
-//             });
-            
-//             console.log("Data sent to AWS successfully:", response.data);
-//             return data;
-//         } catch (axiosError) {
-//             console.error("AWS API Error:", {
-//                 status: axiosError.response?.status,
-//                 message: axiosError.message,
-//                 url: process.env.AWS_ENDPOINT_URL,
-//                 data: axiosError.response?.data
-//             });
-            
-//             // You might want to store failed requests for retry
-//             throw new Error(`AWS API Error: ${axiosError.message}`);
-//         }
+        const timestamp = Date.now();
+        const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
+        const uniqueId = `AEG${(timestamp + random10Digit).toString().slice(0, 12)}`;
+
+        const formattedTimestamp = moment().format('YYYY-MM-DD HH:mm:ss');
+
+        const {
+            CH1, // Robot ID
+            CH2, // Status
+            CH4, // Battery %
+            CH7, // Fault Code
+            CH9, // Running length
+            CH10, // Total running length
+            CH11, // Signal Strength
+            CH12, // GPS
+            CH13, // RFID
+            CH14, // TempA
+            CH15, // Temp1
+            CH16, // Temp2
+            CH17, // Temp3
+            CH18  // Temp4
+        } = data?.object || {};
+
+        const payload = {
+            data: {
+                Data_ID: uniqueId,
+                Timestamp: formattedTimestamp,
+                Robot_ID: `AEGU${CH1 || 'UNKNOWN'}`,
+                Robot_Status: CH2 ? "Operational" : "Stopped",
+                Running_length: String(CH9 || "0"),
+                Total_running_length: CH10?.toString() || "0",
+                Signal_Strength: data.rxInfo?.[0]?.rssi?.toString() || "0",
+                Battery_percent: CH4?.toString() || "0",
+                GPS: CH12 ? CH12.toString() : "0,0",
+                RFID: CH13?.toString() || "-1",
+                TempA: CH14?.toString() || "0.0",
+                Temp1: CH15?.toString() || "0.0",
+                Temp2: CH16?.toString() || "0.0",
+                Temp3: CH17?.toString() || "0.0",
+                Temp4: CH18?.toString() || "0.0"
+            }
+        };
+
+        console.log("📤 Payload to be sent to AEGEUS API:", payload);
+
+        try {
+            const response = await axios.post(
+                "https://aegeusapp.devspal.com/api/data",
+                payload,
+                {
+                    headers: {
+                        'apikey': '2a345678-f91g-920w-45e8e-936ce-l71jq',
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 5000
+                }
+            );
+
+            console.log("✅ Data sent to AEGEUS API successfully:", response.data);
+            return data;
+        } catch (axiosError) {
+            console.error("❌ AEGEUS API Error:", {
+                status: axiosError.response?.status,
+                message: axiosError.message,
+                url: "https://aegeusapp.devspal.com/api/data",
+                data: axiosError.response?.data
+            });
+
+            throw new Error(`AEGEUS API Error: ${axiosError.message}`);
+        }
+
     } catch (error) {
-        console.error("Message handling error:", error);
-        throw error;
+        console.error("❌ Message handling error:", error);
     }
 }
 
-async function handleError(error) {
-    console.log("Error on subscribing to the topic:", error);
+function handleError(error) {
+    console.error("❌ MQTT Client Error:", error);
 }
 
-async function handleReconnect() {
-    console.log("Reconnecting to the MQTT broker");
+function handleReconnect() {
+    console.log("🔁 Reconnecting to MQTT broker...");
 }
 
-async function handleClose() {
-    console.log("Closing the connection to the MQTT broker");
+function handleClose() {
+    console.log("🔌 MQTT connection closed.");
 }
 
-module.exports = {setupMQTTClient2};
+module.exports = { setupMQTTClient2 };

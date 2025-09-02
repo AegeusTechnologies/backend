@@ -1,5 +1,6 @@
 const mqtt = require('mqtt');
 const apiClient = require('../config/apiClient');
+const { resendDownlink } = require('../services/resendDownlink');
 require('dotenv').config();
 
 let retryCounter = {};
@@ -49,7 +50,7 @@ async function mqttEvents() {
     });
 
     client.on('message', async (topic, message) => {
-        console.log(`Received message on topic ${topic}:`, message.toString());
+      //  console.log(`Received message on topic ${topic}:`, message.toString());
 
         try {
             const parts = topic.split('/');
@@ -57,28 +58,43 @@ async function mqttEvents() {
             const eventType = parts[5];
             const event = JSON.parse(message.toString());
 
-            let eventData = {
-                timestamp: event.time,
-                robotName: event.deviceInfo.deviceName,
-                deviceEUI: event.deviceInfo.devEui
+    let eventData = {
+        timestamp: event.time,
+        robotName: event.deviceInfo.deviceName,
+        deviceEUI: event.deviceInfo.devEui
+    };
+
+    eventData.gatewayReceived = event.queueItemId;
+
+    if (eventType === 'txack') {
+        try {
+            // Fetch queued downlinks
+            const response = await apiClient.get(`/api/devices/${deviceEUI}/queue`);
+            const { result } = response.data;
+
+        if (result && result.length > 0) {
+            const lastDownlink = result[result.length - 1];
+            const decoded = Buffer.from(lastDownlink.data, 'base64').toString('hex'); 
+            // (use 'utf-8' if payload is text, 'hex' if it’s binary)
+
+            pendingDownlinks[deviceEUI] = {
+                data: lastDownlink.data,
+                fPort: lastDownlink.fPort,
+                robotName: event.deviceInfo ? event.deviceInfo.deviceName : deviceEUI,
+                timestamp: Date.now(),
             };
 
-            if (eventType === 'txack') {
-                const decoded = event.data
-                    ? Buffer.from(event.data, 'base64').toString('utf-8')
-                    : null;
+            console.log(`TXACK: Cached latest downlink for ${deviceEUI}:`, decoded);
+        } else {
+            console.warn(`No downlinks found in queue for ${deviceEUI}`);
+        }
+    } catch (err) {
+        console.error(`Failed to fetch downlinks for ${deviceEUI}:`, err.message);
+    }
 
-                if (decoded) {
-                    pendingDownlinks[deviceEUI] = {
-                        data: decoded,
-                        robotName: event.deviceInfo.deviceName,
-                        timestamp: Date.now()
-                    };
-                    console.log(`TXACK: Saved downlink data for ${deviceEUI}:`, decoded);
-                }
+    eventData.gatewayReceived = event.queueItemId;
+}
 
-                eventData.gatewayReceived = event.queueItemId;
-            }
 
             else if (eventType === 'ack') {
                 const acknowledged = event.acknowledged;
@@ -94,7 +110,8 @@ async function mqttEvents() {
                             retryCounter[deviceEUI]++;
                             console.warn(`ACK failed. Retrying (${retryCounter[deviceEUI]}/${MAX_RETRIES}) for ${deviceEUI}`);
 
-                            await resendDownlink(deviceEUI, cached.robotName, cached.data);
+                            await resendDownlink(deviceEUI, cached.robotName, cached.data, cached.fPort);
+
                         } else {
                             console.error(`No cached downlink to retry for ${deviceEUI}`);
                         }
@@ -151,21 +168,6 @@ async function mqttEvents() {
     }, 60 * 1000); // run every 1 minute
 }
 
-async function resendDownlink(devEui, robotName, data) {
-    try {
-        const payload = {
-            devEui,
-            confirmed: true,
-            fPort: 10,
-            data: Buffer.from(data, 'utf-8').toString('base64')
-        };
-
-        await apiClient.post('/api/devices/' + devEui + '/queue', payload);
-        console.log(`Resent downlink to ${robotName} (${devEui})`);
-    } catch (error) {
-        console.error(`Failed to resend downlink for ${devEui}:`, error.message);
-    }
-}
 
 async function getAllMessage() {
     return [...messageHistory].reverse();
