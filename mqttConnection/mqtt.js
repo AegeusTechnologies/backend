@@ -51,10 +51,30 @@ async function handleMessage(_topic, message) {
         const data = JSON.parse(message.toString());
         // console.log("Message received from the MQTT broker:", data);
 
-        await storeDataToRedis(data);
-        await storeStatusData(data);
-        await storeDataToDatabase(data);
-        await activelyRunning(data);
+        try {
+            await storeDataToRedis(data);
+        } catch (e) {
+            console.error("❌ Failed to store data to Redis:", e);
+        }
+        
+        try {
+            await storeStatusData(data);
+        } catch (e) {
+            console.error("❌ Failed to store status data:", e);
+        }
+        
+        try {
+            await storeDataToDatabase(data);
+        } catch (e) {
+            console.error("❌ Failed to store data to database:", e);
+        }
+        
+        try {
+            await activelyRunning(data);
+        } catch (e) {
+            console.error("❌ Failed to update active data:", e);
+        }
+        
 
         const timestamp = Date.now();
         const random10Digit = Math.floor(Math.random() * 9000000000) + 1000000000;
@@ -99,7 +119,7 @@ async function handleMessage(_topic, message) {
             }
         };
 
-        console.log("📤 Payload to be sent to AEGEUS API:", payload);
+     //   console.log("📤 Payload to be sent to AEGEUS API:", payload);
 
         try {
             const response = await axios.post(
@@ -114,7 +134,7 @@ async function handleMessage(_topic, message) {
                 }
             );
 
-            console.log("✅ Data sent to AEGEUS API successfully:", response.data);
+           // console.log("✅ Data sent to AEGEUS API successfully:", response.data);
             return data;
         } catch (axiosError) {
             console.error("❌ AEGEUS API Error:", {

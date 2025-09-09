@@ -15,11 +15,10 @@ const apiClient = axios.create({
 async function storeDataToDatabase(data) {
     try {
         // Validate incoming data
-        if (!data?.object?.CH1 || !data?.deviceInfo?.devEui) {
+        if (!data?.object?.CH1 || !data?.deviceInfo?.devEui  || data.object.CH1 == 0 || data.object.CH1 == undefined) {
             console.info("Invalid data structure - missing required fields");
             return { success: false, message: "Invalid data structure" };
-        }
-        
+        }        
         const currentOdometer = parseInt(data.object.CH10);
         
         // Validate odometer value
@@ -27,16 +26,14 @@ async function storeDataToDatabase(data) {
             console.info("Invalid odometer value:", data.object.CH10);
             return { success: false, message: "Invalid odometer value" };
         }
-
         // Fetch device block info from API
         let blockDescription = "";
         try {
             const block = await apiClient.get(`/api/devices/${data.deviceInfo.devEui}`);
             blockDescription = String(block?.data?.device?.description ?? "Unknown Block");
-            console.log(`Fetched block description from ${block?.data?.device?.name}:`, blockDescription);
+           // console.log(`Fetched block description from ${block?.data?.device?.name}:`, blockDescription);
         } catch (error) {
             console.error("Error fetching device block data:", error.message);
-            // Consider if you want to throw here or continue with "Unknown Block"
             blockDescription = "Unknown Block";
         }
 
@@ -55,19 +52,21 @@ async function storeDataToDatabase(data) {
             console.info("New device data is being stored");
             return await newData(data, blockDescription);
         }
+        
 
-        const previousOdometer = historyData.raw_odometer_value;
+        const previousOdometer = historyData.raw_odometer_value; // previus odometer value of the device
+    
+        //this is the case where odometerwill give some shit value
+        if (currentOdometer >previousOdometer * 10 ){
+            console.info("Odometer value seems erroneous (too high), skipping storage",data.deviceInfo.deviceName);
+            return { success: false, message: "Erroneous odometer value, skipping storage" };
+         }
 
         // Compare odometer values and handle accordingly
-        if (currentOdometer < previousOdometer) {
+        if (currentOdometer < previousOdometer ) {
             console.info("Odometer has been reset");
-            return await odometerIfReset(
-                data,
-                previousOdometer,
-                historyData.panels_cleaned,
-                blockDescription
-            );
-        } else if (currentOdometer > previousOdometer) {
+            return await odometerIfReset(data,previousOdometer,blockDescription);
+        } else if (currentOdometer > previousOdometer || currentOdometer === previousOdometer) {
             console.info("Odometer has advanced");
             return await odometerIfNotReset(
                 data,
@@ -75,7 +74,6 @@ async function storeDataToDatabase(data) {
                 blockDescription
             );
         } else {
-            // currentOdometer === previousOdometer
             console.info("No odometer change - duplicate data");
             return {
                 success: false,

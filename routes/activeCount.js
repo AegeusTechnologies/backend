@@ -2,89 +2,35 @@ const express = require('express');
 const prisma = require('../config/prismaConfig');
 const Robotcount = express.Router();
 
-// ✅ GET latest active count per device
+// ✅ GET latest active count per device, including block
 Robotcount.get('/activeCount', async (req, res) => {
     try {
-        const result = await prisma.$queryRaw`
-            SELECT DISTINCT ON (device_id)
-                device_id,
-                device_name,
-                block,
-                "autoCount",
-                "manualCount",
-                "updateAt"
-            FROM "RunningData"
-            ORDER BY device_id, "createdAt" DESC;
-        `;
+        const startOfDay = new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
 
-        if (result.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "No active counts found",
-                count: 0
-            });
-        }
-
-        return res.status(200).json({
-            success: true,
-            data: result,
-            count: result.length
+        const logs = await prisma.robotRunLog.groupBy({
+            by: ['device_id', 'device_name', 'block'], // <- include block here
+            where: {
+                createdAt: { gte: startOfDay },
+            },
+            _sum: {
+                AutoCount: true,
+                ManualCount: true,
+            },
         });
+
+        const results = logs.map(log => ({
+            device_id: log.device_id,
+            device_name: log.device_name,
+            block: log.block || "Unknown",
+            autoCountToday: log._sum.AutoCount || 0,
+            manualCountToday: log._sum.ManualCount || 0,
+        }));
+
+        res.json({ success: true, data: results });
 
     } catch (error) {
         console.error("Error in GET /activeCount route:", {
-            message: error.message,
-            stack: error.stack
-        });
-        res.status(500).json({ success: false, message: "Internal Server Error" });
-    }
-});
-
-// ✅ POST filtered by date, latest entry per device
-Robotcount.post('/activeCount', async (req, res) => {
-    try {
-        const { date } = req.body;
-
-        if (!date) {
-            return res.status(400).json({
-                success: false,
-                message: "Date is required"
-            });
-        }
-
-        const startDate = new Date(date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(date);
-        endDate.setHours(23, 59, 59, 999);
-
-        const result = await prisma.$queryRaw`
-            SELECT DISTINCT ON (device_id)
-                device_id,
-                device_name,
-                block,
-                "autoCount",
-                "manualCount",
-                "updateAt"
-            FROM "RunningData"
-            WHERE "createdAt" BETWEEN ${startDate} AND ${endDate}
-            ORDER BY device_id, "createdAt" DESC;
-        `;
-
-        if (result.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: "No data found for the given date"
-            });
-        }
-
-        return res.status(200).json({
-            success: true,
-            data: result,
-            count: result.length
-        });
-
-    } catch (error) {
-        console.error("Error in POST /activeCount route:", {
             message: error.message,
             stack: error.stack
         });

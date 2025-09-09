@@ -20,6 +20,11 @@ const BatteryRouter = require('./routes/robotbatter');
 const Robotcount = require('./routes/activeCount');
 require('dotenv').config(); 
 const app = express();
+const cron = require('node-cron');
+//const StoreActivedevices = require('./services/runsDaily');
+
+
+
 
 
 // Basic middleware
@@ -27,7 +32,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-
+//cron.schedule('0 0 * * *',StoreActivedevices);
 setupMQTTClient2();
 setupMQTTClient3();
 mqttEvents(); // this for the events data

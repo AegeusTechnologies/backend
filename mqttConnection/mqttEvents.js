@@ -1,6 +1,7 @@
 const mqtt = require('mqtt');
 const apiClient = require('../config/apiClient');
 const { resendDownlink } = require('../services/resendDownlink');
+const { status } = require('./statusRobotRedis');
 require('dotenv').config();
 
 let retryCounter = {};
@@ -109,9 +110,18 @@ async function mqttEvents() {
                         if (cached) {
                             retryCounter[deviceEUI]++;
                             console.warn(`ACK failed. Retrying (${retryCounter[deviceEUI]}/${MAX_RETRIES}) for ${deviceEUI}`);
-
-                            await resendDownlink(deviceEUI, cached.robotName, cached.data, cached.fPort);
-
+                            
+                           try {
+                            let key = `status:${deviceEUI}`;
+                            const isRunning = status.get(key);
+                            if(isRunning == "STOPPED"){
+                           await resendDownlink(deviceEUI, cached.robotName, cached.data, cached.fPort);
+                            }else{
+                               console.log(`Device ${deviceEUI} is RUNNING. Skipping downlink resend.`);
+                            }
+                           } catch (error) {
+                            console.error(`Error resending downlink for ${deviceEUI}:`, error.message);
+                           }
                         } else {
                             console.error(`No cached downlink to retry for ${deviceEUI}`);
                         }

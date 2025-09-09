@@ -1,78 +1,55 @@
 const prisma = require("../config/prismaConfig");
+const { handleNewData, handleCountData } = require("../storingDataFunctions/automanual");
 
 async function activelyRunning(data) {
     try {
-        const date = new Date();
-        const manuallCount = parseInt(data.object.CH16 ?? "0", 10);
-        const AutoCount = parseInt(data.object.CH15 ?? "0", 10);
-
-        const result = await prisma.robot_data.findFirst({
-            where: {
-                device_id: data.deviceInfo.devEui,
-                createdAt: {
-                    gte: new Date(date.getFullYear(), date.getMonth(), date.getDate())
-                }
-            },
-            orderBy: {
-                createdAt: 'desc'
-            },
+        const history = await prisma.RobotRunLog.findFirst({
+            where: { device_id: data.deviceInfo.devEui },
+            orderBy: { createdAt: 'desc' },
             select: {
                 AutoCount: true,
-                ManuallCount: true,
-                block:true
+                Raw_Auto_count: true,
+                ManualCount: true,
+                Raw_manual_count: true,
+                createdAt: true
             }
         });
-        console.log("Result from robot_data:", result);
 
-        if (!result) {
-            console.log("No previous data found for device:",data.deviceInfo.name);
-            return;
+        
+        let blockName = "Unknown Block";
+
+        try {
+            const block = await prisma.robot_data.findFirst({
+                where: {
+                    device_id: data.deviceInfo.devEui
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                },
+                select: {
+                    block: true
+                }
+            });
+
+            if (block?.block) {
+                blockName = block.block;
+            }
+        } catch (error) {
+            console.error("Error fetching block data for active count:", error.message);
         }
 
-        const newAutoCount = AutoCount - (result.AutoCount ?? 0);
-        const newManualCount = manuallCount - (result.ManuallCount ?? 0);
-
-        let existingRunningData = await prisma.runningData.findFirst({
-            where: {
-                device_id: data.deviceInfo.devEui,
-                createdAt: {
-                    gte: new Date(date.getFullYear(), date.getMonth(), date.getDate())
-                }
-            }
-        });
-
-        if (!existingRunningData) {
-            console.log("Creating new running data for:", data.deviceInfo.name);
-
-            await prisma.runningData.create({
-                data: {
-                    device_id: data.deviceInfo.devEui,
-                    device_name: data.deviceInfo.deviceName,
-                    autoCount: AutoCount,
-                    manualCount: manuallCount,
-                    block: result.block || "Unknown Block",
-                }
-            });
+        if (!history) {
+            console.info("No previous active count data found for device:", data.deviceInfo.deviceName);
+            await handleNewData(data, blockName);
+            return;
         } else {
-            await prisma.runningData.update({
-                where: {
-                    id: existingRunningData.id,
-                },
-                data: {
-                    autoCount: existingRunningData.autoCount + newAutoCount,
-                    manualCount: existingRunningData.manualCount + newManualCount,
-                    updateAt: new Date()
-                }
-            });
+            await handleCountData(data, blockName, history);
         }
 
     } catch (error) {
-        console.error("Error in activelyRunning:", {
-            message: error.message,
-            stack: error.stack
-        });
-        throw error;
+        console.error("❌ Error in activelyRunning:", error.message);
     }
 }
+
 
 module.exports = activelyRunning

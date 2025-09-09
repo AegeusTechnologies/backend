@@ -55,28 +55,16 @@ async function newData(data, block) {
 /**
  * Handle odometer reset scenario
  */
-async function odometerIfReset(data, previousOdometerValue, previousPanelsCleaned, block) {
+async function odometerIfReset(data,previousOdomater, block) {
     try {
         const rawOdometer = parseInt(data.object.CH10);
-        const currentPanelsCleaned = calculatePanelsCleaned(rawOdometer);
-        const totalPanelsCleaned = previousPanelsCleaned + currentPanelsCleaned;
+        const dev= Math.abs(rawOdometer - previousOdomater);
 
-        if (currentPanelsCleaned <= 0) {
-            return { success: false, message: "No new panels cleaned after odometer reset, skipping storage" };
+        if(dev<5){
+            return { success: false, message: "No significant change in odometer after reset, skipping storage" };
         }
 
-        const result = await prisma.robot_data.create({
-            data: {
-                device_id: data.deviceInfo.devEui,
-                block,
-                device_name: data.deviceInfo.deviceName,
-                panels_cleaned: totalPanelsCleaned,
-                raw_odometer_value: rawOdometer,
-                battery_discharge_cycle: data.object.CH6,
-                AutoCount: parseInt(data.object.CH15),
-                ManuallCount: parseInt(data.object.CH16),
-            }
-        });
+        const result = await newData(data, block);
 
         return { success: true, message: "Data stored after odometer reset", data: result };
     } catch (error) {
@@ -94,14 +82,11 @@ async function odometerIfReset(data, previousOdometerValue, previousPanelsCleane
 async function odometerIfNotReset(data, previousOdometer, block) {
     try {
         const rawOdometer = parseInt(data.object.CH10);
-        const newOdometerDistance = rawOdometer - previousOdometer;
+        const newOdometerDistance = Math.abs(rawOdometer - previousOdometer);
 
         const newPanelsCleaned = calculatePanelsCleaned(newOdometerDistance);
 
-        // if (newPanelsCleaned < 0) {
-        //     return { success: false, message: "No new panels cleaned since last update" };
-        // }
-
+    
         const result = await prisma.robot_data.create({
             data: {
                 device_id: data.deviceInfo.devEui,
