@@ -2,33 +2,59 @@ const express = require('express');
 const prisma = require('../config/prismaConfig');
 const Robotcount = express.Router();
 
-// ✅ GET latest active count per device, including block
+
 Robotcount.get('/activeCount', async (req, res) => {
     try {
         const startOfDay = new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
-
-        const logs = await prisma.robotRunLog.groupBy({
-            by: ['device_id', 'device_name', 'block'], // <- include block here
+        
+      
+        const devices = await prisma.robotRunLog.findMany({
             where: {
-                createdAt: { gte: startOfDay },
+                OR: [
+                    { createdAt: { gte: startOfDay } },
+                    { updatedAt: { gte: startOfDay } }
+                ]
             },
-            _sum: {
-                AutoCount: true,
-                ManualCount: true,
+            select: {
+                device_id: true,
+                device_name: true,
+                block: true
             },
+            distinct: ['device_id']
         });
 
-        const results = logs.map(log => ({
-            device_id: log.device_id,
-            device_name: log.device_name,
-            block: log.block || "Unknown",
-            autoCountToday: log._sum.AutoCount || 0,
-            manualCountToday: log._sum.ManualCount || 0,
+        // Get latest record for each device to get current totals
+        const results = await Promise.all(devices.map(async (device) => {
+            const latestRecord = await prisma.robotRunLog.findFirst({
+                where: { 
+                    device_id: device.device_id,
+                    OR: [
+                        { createdAt: { gte: startOfDay } },
+                        { updatedAt: { gte: startOfDay } }
+                    ]
+                },
+                orderBy: { createdAt: 'desc' },
+                select: {
+                    device_id: true,
+                    device_name: true,
+                    block: true,
+                    AutoCount: true,
+                    ManualCount: true
+                }
+            });
+
+            return {
+                device_id: latestRecord?.device_id || device.device_id,
+                device_name: latestRecord?.device_name || device.device_name,
+                block: latestRecord?.block || device.block || "Unknown",
+                autoCountToday: latestRecord?.AutoCount || 0,
+                manualCountToday: latestRecord?.ManualCount || 0,
+            };
         }));
 
         res.json({ success: true, data: results });
-
+        
     } catch (error) {
         console.error("Error in GET /activeCount route:", {
             message: error.message,
@@ -37,5 +63,6 @@ Robotcount.get('/activeCount', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
+
 
 module.exports = Robotcount;

@@ -2,11 +2,17 @@ const prisma = require("../config/prismaConfig");
 const { handleNewData, handleCountData } = require("../storingDataFunctions/automanual");
 
 async function activelyRunning(data) {
+
+    if(data.object.CH1== 0 || data.object.CH1== undefined){
+        console.info("Skipping active count processing due to CH1 being 0 or undefined for device:", data.deviceInfo.deviceName);
+        return;
+    }
     try {
-        const history = await prisma.RobotRunLog.findFirst({
+        const history = await prisma.robotRunLog.findFirst({
             where: { device_id: data.deviceInfo.devEui },
             orderBy: { createdAt: 'desc' },
             select: {
+                id:true,
                 AutoCount: true,
                 Raw_Auto_count: true,
                 ManualCount: true,

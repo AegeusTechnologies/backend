@@ -38,14 +38,23 @@ if (end < start) {
     
         })
 
-        const processedReports= robotReports.map(robot =>({
-            robotId:robot.device_id,
-            block:robot.block,
-            robotName:robot.device_name,
-            totalPanelsCleaned:robot._sum.panels_cleaned || 0
-
-        }));
-
+        const processedReports = await Promise.all(
+            robotReports.map(async (robot) => {
+              const latestData = await prisma.robot_data.findFirst({
+                where: { device_id: robot.device_id },
+                orderBy: { createdAt: 'desc' },
+                select: { block: true }
+              });
+          
+              return {
+                robotId: robot.device_id,
+                block: latestData?.block ?? "Unknown",
+                robotName: robot.device_name,
+                totalPanelsCleaned: robot._sum?.panels_cleaned || 0
+              };
+            })
+          );
+          
         const totalPanelsCleaned= processedReports.reduce(
             (sum,robot)=>sum+robot.totalPanelsCleaned,0);
 

@@ -55,12 +55,12 @@ async function storeDataToDatabase(data) {
         
 
         const previousOdometer = historyData.raw_odometer_value; // previus odometer value of the device
-    
+       const previousPanelsCleaned = historyData.panels_cleaned; // previous panels cleaned value of the device
         //this is the case where odometerwill give some shit value
-        if (currentOdometer >previousOdometer * 10 ){
-            console.info("Odometer value seems erroneous (too high), skipping storage",data.deviceInfo.deviceName);
-            return { success: false, message: "Erroneous odometer value, skipping storage" };
-         }
+        // if (currentOdometer >previousOdometer * 20 ){
+        //     console.info("Odometer value seems erroneous (too high), skipping storage",data.deviceInfo.deviceName);
+        //     return { success: false, message: "Erroneous odometer value, skipping storage" };
+        //  }
 
         // Compare odometer values and handle accordingly
         if (currentOdometer < previousOdometer ) {
@@ -71,7 +71,8 @@ async function storeDataToDatabase(data) {
             return await odometerIfNotReset(
                 data,
                 previousOdometer,
-                blockDescription
+                blockDescription,
+                previousPanelsCleaned
             );
         } else {
             console.info("No odometer change - duplicate data");

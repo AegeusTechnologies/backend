@@ -2,7 +2,7 @@ const RobotsBattery = new Map();
 
 setInterval(() =>{
     RobotsBattery.clear();
-},60 * 60 * 1000); 
+},100 * 60 * 1000); 
 
 async function robotBattery(devEui ,battery_percent) {
 

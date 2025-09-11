@@ -41,14 +41,13 @@ allReportRouter.post('/report/day', async (req, res) => {
 
             //const battery = await redisClient.get(robot.device_id)
            // console.log("Battery data from Redis this is to get the data from the redif  isso usefull:", battery);
-            const  actualBattery = RobotsBattery.get(robot.device_id);
-            console.log("bateryt data from the redis:", actualBattery);
-            // If battery data is not found, default to 0
+            // const  actualBattery = RobotsBattery.get(robot.device_id);
+            // console.log("bateryt data from the redis:", actualBattery);
+            // // If battery data is not found, default to 0
            // const batteryvoltage = battery ? JSON.parse(battery).object.CH5 : 0;
             return {
                 robotId: robot.device_id,
                 block: block.block,
-                battery:actualBattery || 0,
                 robotName: robot.device_name,
                 totalPanelsCleaned: robot._sum.panels_cleaned || 0,
             };
