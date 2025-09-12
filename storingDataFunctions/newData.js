@@ -25,15 +25,12 @@ async function newData(data, block) {
     try {
         block = block || "Unknown Block";
         const rawOdometer = parseInt(data.object.CH10);
-        const panelsCleaned = calculatePanelsCleaned(rawOdometer);
-
-
         const result = await prisma.robot_data.create({
             data: {
                 device_id: data.deviceInfo.devEui,
                 block,
                 device_name: data.deviceInfo.deviceName,
-                panels_cleaned: 0,
+                panels_cleaned: parseFloat("0"),
                 raw_odometer_value: rawOdometer,
                 battery_discharge_cycle: data.object.CH6,
                 AutoCount: parseInt(data.object.CH15),
@@ -83,36 +80,7 @@ async function odometerIfReset(data,previousOdomater, block) {
 async function odometerIfNotReset(data, previousOdometer, block, previousPanelsCleaned) {
     try {
       
-        const today = new Date();
-        today.setUTCHours(0, 0, 0, 0); 
-        
-        const existingData = await prisma.robot_data.findFirst({
-            where: {
-                device_id: data.deviceInfo.devEui,
-                createdAt: {
-                    gte: today
-                }
-            },
-            orderBy: {
-                createdAt: 'desc'
-            },
-            select: {
-                raw_odometer_value: true,
-                panels_cleaned: true
-            }
-        });
-
-        // Step 2: If no changes in odometer or panels cleaned, return early
-        if (existingData?.raw_odometer_value === previousOdometer && existingData?.panels_cleaned === previousPanelsCleaned) {
-            console.log("No change in odometer or panels cleaned today, skipping storage for device:", data.deviceInfo.deviceName);
-            return { success: false, message: "No change in odometer or panels cleaned today, skipping storage" };
-        }
-
-        // Step 3: Parse raw odometer value and calculate new data
         const rawOdometer = parseInt(data.object.CH10);
-        if (isNaN(rawOdometer)) {
-            throw new Error(`Invalid odometer value: ${data.object.CH10}`);
-        }
 
         const newOdometerDistance = Math.abs(rawOdometer - previousOdometer);
         const newPanelsCleaned = calculatePanelsCleaned(newOdometerDistance);
@@ -142,4 +110,40 @@ async function odometerIfNotReset(data, previousOdometer, block, previousPanelsC
 }
 
 
-module.exports = { newData, odometerIfReset, odometerIfNotReset };
+async function ifOdomterIsSame(data,previousOdomater,block,previousPanelsCleaned){
+    try {
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0); 
+        
+        const existingData = await prisma.robot_data.findFirst({
+            where: {
+                device_id: data.deviceInfo.devEui,
+                createdAt: {
+                    gte: today
+                }
+            },
+            orderBy: {
+                createdAt: 'desc'
+            },
+            select: {
+                raw_odometer_value: true,
+                panels_cleaned: true
+            }
+        });
+
+         if (existingData?.raw_odometer_value === previousOdomater && existingData?.panels_cleaned === 0) {
+           // console.log("No change in odometer or panels cleaned today, skipping storage for device:", data.deviceInfo.deviceName);
+            return { success: false, message: "No change in odometer or panels cleaned today, skipping storage" };
+        }else{
+            const result = await newData(data, block);
+            return { success: true, message: "Data stored successfully", data: result };
+        }
+
+        
+    } catch (error) {
+        console.error("Error in ifOdomterIsSame:", error);
+        return { success: false, message: "Error occurred", error };
+    }
+}
+
+module.exports = { newData, odometerIfReset, odometerIfNotReset,ifOdomterIsSame };

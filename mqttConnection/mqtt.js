@@ -51,10 +51,16 @@ async function handleMessage(_topic, message) {
         const data = JSON.parse(message.toString());
         // console.log("Message received from the MQTT broker:", data);
 
-        if(data.object.CH1== 0 || data.object.CH1== undefined || data.object.CH1== null || data.object.CH1== "0"){
-            console.info("Skipping processing due to CH1 being 0 or undefined for device:", data.deviceInfo.deviceName);
-            return;
-        }
+       const objectvalues = data?.object
+
+       const isAllValuesZero = Object.entries(objectvalues)
+            .filter(([key,_]) => key !== 'CH0') // Exclude CH0 from the check
+            .every(([_, value]) => value === 0);
+
+            if(isAllValuesZero){
+                console.info("Skipping processing due to all CH values being 0 for device:", data.deviceInfo.deviceName);
+                return;
+            }
 
         try {
             await storeDataToRedis(data);

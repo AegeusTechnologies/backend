@@ -97,7 +97,7 @@ allReportRouter.post('/report/monthly', async (req, res) => {
         endOfMonth.setMonth(endOfMonth.getMonth() + 1)
 
         const monthlyReport = await prisma.robot_data.groupBy({
-            by: ['device_id', 'device_name'],
+            by: ['device_name'],
             _sum: {
                 panels_cleaned: true,
                 battery_discharge_cycle: true
@@ -109,11 +109,11 @@ allReportRouter.post('/report/monthly', async (req, res) => {
                 }
             }
         })
-
+        
         const processedReports = await Promise.all(monthlyReport.map(async (robot) => {
-            const block = await prisma.robot_data.findFirst({
+            const blockData = await prisma.robot_data.findFirst({
                 where: {
-                    device_id: robot.device_id
+                    device_name: robot.device_name
                 },
                 select: {
                     block: true
@@ -122,15 +122,14 @@ allReportRouter.post('/report/monthly', async (req, res) => {
                     createdAt: 'desc'
                 }
             });
-
+        
             return {
-                robotId: robot.device_id,
-                block: block.block,
                 robotName: robot.device_name,
+                block: blockData?.block,
                 totalPanelsCleaned: robot._sum.panels_cleaned || 0,
             };
         }));
-
+        
         const totalPanelsCleaned = processedReports.reduce((sum, robot) => 
             sum + robot.totalPanelsCleaned, 0)
 

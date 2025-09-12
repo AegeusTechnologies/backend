@@ -1,5 +1,5 @@
 const prisma = require("../config/prismaConfig");
-const { newData, odometerIfNotReset, odometerIfReset } = require("../storingDataFunctions/newData");
+const { newData, odometerIfNotReset, odometerIfReset, ifOdomterIsSame } = require("../storingDataFunctions/newData");
 require('dotenv').config(); 
 const axios = require('axios');
 
@@ -15,7 +15,7 @@ const apiClient = axios.create({
 async function storeDataToDatabase(data) {
     try {
         // Validate incoming data
-        if (!data?.object?.CH1 || !data?.deviceInfo?.devEui  || data.object.CH1 == 0 || data.object.CH1 == undefined) {
+        if (!data?.object?.CH1 || !data?.deviceInfo?.devEui  || data.object.CH1 == 0 || data.object.CH1 == undefined || data.object.CH1 == "0") {
             console.info("Invalid data structure - missing required fields");
             return { success: false, message: "Invalid data structure" };
         }        
@@ -66,7 +66,7 @@ async function storeDataToDatabase(data) {
         if (currentOdometer < previousOdometer ) {
             console.info("Odometer has been reset");
             return await odometerIfReset(data,previousOdometer,blockDescription);
-        } else if (currentOdometer > previousOdometer || currentOdometer === previousOdometer) {
+        } else if (currentOdometer > previousOdometer) {
             console.info("Odometer has advanced");
             return await odometerIfNotReset(
                 data,
@@ -75,12 +75,10 @@ async function storeDataToDatabase(data) {
                 previousPanelsCleaned
             );
         } else {
-            console.info("No odometer change - duplicate data");
-            return {
-                success: false,
-                message: "Duplicate data - no odometer change",
-                skipped: true
-            };
+            return await ifOdomterIsSame(data,
+                previousOdometer,
+                blockDescription,
+                previousPanelsCleaned)
         }
 
     } catch (error) {

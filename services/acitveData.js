@@ -7,6 +7,11 @@ async function activelyRunning(data) {
         console.info("Skipping active count processing due to CH1 being 0 or undefined for device:", data.deviceInfo.deviceName);
         return;
     }
+
+    if(data.object.CH15 == 0 && data.object.CH16 == 0){
+        console.info("Skipping active count processing due to both CH15 and CH16 being 0 for device:", data.deviceInfo.deviceName);
+        return;
+    }
     try {
         const history = await prisma.robotRunLog.findFirst({
             where: { device_id: data.deviceInfo.devEui },

@@ -2,13 +2,12 @@ const express = require('express');
 const prisma = require('../config/prismaConfig');
 const Robotcount = express.Router();
 
-
 Robotcount.get('/activeCount', async (req, res) => {
     try {
         const startOfDay = new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
-        
-      
+
+        // Get all unique devices active today
         const devices = await prisma.robotRunLog.findMany({
             where: {
                 OR: [
@@ -24,37 +23,33 @@ Robotcount.get('/activeCount', async (req, res) => {
             distinct: ['device_id']
         });
 
-        // Get latest record for each device to get current totals
+        // Aggregate today's counts for each device
         const results = await Promise.all(devices.map(async (device) => {
-            const latestRecord = await prisma.robotRunLog.findFirst({
-                where: { 
+            const aggregateCounts = await prisma.robotRunLog.aggregate({
+                where: {
                     device_id: device.device_id,
                     OR: [
                         { createdAt: { gte: startOfDay } },
                         { updatedAt: { gte: startOfDay } }
                     ]
                 },
-                orderBy: { createdAt: 'desc' },
-                select: {
-                    device_id: true,
-                    device_name: true,
-                    block: true,
+                _sum: {
                     AutoCount: true,
                     ManualCount: true
                 }
             });
 
             return {
-                device_id: latestRecord?.device_id || device.device_id,
-                device_name: latestRecord?.device_name || device.device_name,
-                block: latestRecord?.block || device.block || "Unknown",
-                autoCountToday: latestRecord?.AutoCount || 0,
-                manualCountToday: latestRecord?.ManualCount || 0,
+                device_id: device.device_id,
+                device_name: device.device_name,
+                block: device.block || "Unknown",
+                autoCountToday: aggregateCounts._sum.AutoCount || 0,
+                manualCountToday: aggregateCounts._sum.ManualCount || 0,
             };
         }));
 
         res.json({ success: true, data: results });
-        
+
     } catch (error) {
         console.error("Error in GET /activeCount route:", {
             message: error.message,
@@ -63,6 +58,5 @@ Robotcount.get('/activeCount', async (req, res) => {
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 });
-
 
 module.exports = Robotcount;

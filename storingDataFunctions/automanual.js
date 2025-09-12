@@ -39,12 +39,12 @@ async function handleCountData(data, block, history) {
         }
         
         if (newRawAuto === prevRawAuto && newRawManual === prevRawManual) {
-            console.info(`ℹ️ No change in count for device ${data.deviceInfo.devEui}. Skipping.`);
+            //console.info(`ℹ️ No change in count for device ${data.deviceInfo.devEui}. Skipping.`);
             return null;
         }
         
-        const autoDelta = newRawAuto - prevRawAuto;
-        const manualDelta = newRawManual - prevRawManual;
+        const autoDelta = Math.abs(newRawAuto - prevRawAuto);
+        const manualDelta = Math.abs(newRawManual - prevRawManual);
         
         // ✅ CREATE A NEW ROW instead of updating existing one
         const result = await prisma.robotRunLog.create({
@@ -54,8 +54,8 @@ async function handleCountData(data, block, history) {
                 block: block,
                 Raw_Auto_count: newRawAuto,  // Current raw reading
                 Raw_manual_count: newRawManual,  // Current raw reading
-                AutoCount: history.AutoCount + (autoDelta > 0 ? autoDelta : 0),  // Cumulative
-                ManualCount: history.ManualCount + (manualDelta > 0 ? manualDelta : 0)  // Cumulative
+                AutoCount: autoDelta,
+                ManualCount: manualDelta
             }
         });
         
