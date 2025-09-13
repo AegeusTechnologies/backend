@@ -22,9 +22,15 @@ function calculatePanelsCleaned(odometerValue) {
  * Store new device data
  */
 async function newData(data, block) {
+
+   
     try {
         block = block || "Unknown Block";
         const rawOdometer = parseInt(data.object.CH10);
+        if (isNaN(rawOdometer) || rawOdometer < 0) {
+            console.info("Invalid odometer value:", data.object.CH10," skipping data storage for .",data.deviceInfo.deviceName);
+            return { success: false, message: "Invalid odometer value" };
+        }
         const result = await prisma.robot_data.create({
             data: {
                 device_id: data.deviceInfo.devEui,
@@ -56,11 +62,7 @@ async function newData(data, block) {
 async function odometerIfReset(data,previousOdomater, block) {
     try {
         const rawOdometer = parseInt(data.object.CH10);
-        const dev= Math.abs(rawOdometer - previousOdomater);
-
-        // if(dev<5){
-        //     return { success: false, message: "No significant change in odometer after reset, skipping storage" };
-        // }
+        
 
         const result = await newData(data, block);
 

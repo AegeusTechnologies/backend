@@ -14,18 +14,19 @@ const apiClient = axios.create({
 
 async function storeDataToDatabase(data) {
     try {
-        // Validate incoming data
-        if (!data?.object?.CH1 || !data?.deviceInfo?.devEui  || data.object.CH1 == 0 || data.object.CH1 == undefined || data.object.CH1 == "0") {
-            console.info("Invalid data structure - missing required fields");
-            return { success: false, message: "Invalid data structure" };
-        }        
+        const objectvalues = data?.object
+
+        const isAllValuesZero = Object.entries(objectvalues)
+             .filter(([key,_]) => key !== 'CH0') 
+             .every(([_, value]) => value === 0);
+
+        if(isAllValuesZero){
+            console.info("All channel values are zero, skipping data storage for device:",data.deviceInfo.deviceName);
+            return { success: false, message: "All channel values are zero, skipping storage" };
+        }
+
         const currentOdometer = parseInt(data.object.CH10);
         
-        // Validate odometer value
-        if (isNaN(currentOdometer) || currentOdometer < 0) {
-            console.info("Invalid odometer value:", data.object.CH10);
-            return { success: false, message: "Invalid odometer value" };
-        }
         // Fetch device block info from API
         let blockDescription = "";
         try {
